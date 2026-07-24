@@ -9,6 +9,7 @@ import unittest
 from scripts.p01_audit_gtdb import (
     collect_tool_versions,
     copy_support_files,
+    ensure_support_files,
     copy_raw_genomes,
     ensure_sufficient_free_space,
     find_ar53_tree,
@@ -173,6 +174,46 @@ class P01AuditGTDBTest(unittest.TestCase):
             self.assertEqual((raw_target / "ar53_taxonomy_r232.tsv").read_text(encoding="utf-8"), "ar")
             self.assertEqual((raw_target / "bac120_r232.tree").read_text(encoding="utf-8"), "tree")
             self.assertEqual((raw_target / "ar53_r232.tree").read_text(encoding="utf-8"), "ar-tree")
+            self.assertEqual(copied["ar53_tree"], raw_target / "ar53_r232.tree")
+
+    def test_ensure_support_files_downloads_missing_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "project"
+            project.mkdir()
+            raw_target = project / "00_raw_gtdb_r232"
+            raw_target.mkdir(parents=True)
+
+            existing = root / "gtdb"
+            existing.mkdir()
+            bac_tax = existing / "bac120_taxonomy_r232.tsv"
+            bac_tree = existing / "bac120_r232.tree"
+            bac_tax.write_text("bac", encoding="utf-8")
+            bac_tree.write_text("tree", encoding="utf-8")
+
+            missing_sources = {
+                "gtdb_root": str(existing),
+                "bac120_taxonomy_source": str(bac_tax),
+                "ar53_taxonomy_source": str(existing / "ar53_taxonomy_r232.tsv"),
+                "bac120_tree_source": str(bac_tree),
+                "release_base_url": "https://example.org/gtdb/",
+            }
+
+            fetched: list[tuple[str, Path]] = []
+
+            def fake_downloader(url: str, destination: Path) -> None:
+                fetched.append((url, destination))
+                destination.write_text("downloaded", encoding="utf-8")
+
+            copied = ensure_support_files(missing_sources, raw_target, downloader=fake_downloader)
+
+            self.assertEqual(len(fetched), 2)
+            self.assertIn("ar53_taxonomy.tsv", fetched[0][0])
+            self.assertIn("ar53.tree", fetched[1][0])
+            self.assertEqual((raw_target / "ar53_taxonomy_r232.tsv").read_text(encoding="utf-8"), "downloaded")
+            self.assertEqual(copied["ar53_taxonomy_source"], raw_target / "ar53_taxonomy_r232.tsv")
+            self.assertEqual((raw_target / "ar53_taxonomy_r232.tsv").read_text(encoding="utf-8"), "downloaded")
+            self.assertEqual((raw_target / "ar53_r232.tree").read_text(encoding="utf-8"), "downloaded")
             self.assertEqual(copied["ar53_tree"], raw_target / "ar53_r232.tree")
 
     def test_copy_raw_genomes_invokes_rsync_with_expected_flags(self) -> None:

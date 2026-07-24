@@ -13,6 +13,7 @@ import math
 import os
 import shutil
 import subprocess
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
@@ -30,6 +31,14 @@ REQUIRED_PATH_KEYS = (
 )
 
 CommandRunner = Callable[..., object]
+Downloader = Callable[[str, Path], None]
+
+DEFAULT_RELEASE_BASE_URL = "https://data.ace.uq.edu.au/public/gtdb/data/releases/latest/"
+OFFICIAL_SUPPORT_FILES = {
+    "bac120_taxonomy_source": "bac120_taxonomy.tsv",
+    "ar53_taxonomy_source": "ar53_taxonomy.tsv",
+    "bac120_tree_source": "bac120.tree",
+}
 
 
 def load_paths_config(config_path: Path) -> dict[str, str]:
@@ -165,21 +174,41 @@ def find_ar53_tree(gtdb_root: Path) -> Path | None:
 
 
 def copy_support_files(paths: dict[str, str], raw_target: Path) -> dict[str, Path | None]:
+    return ensure_support_files(paths, raw_target)
+
+
+def ensure_support_files(
+    paths: dict[str, str],
+    raw_target: Path,
+    downloader: Downloader | None = None,
+) -> dict[str, Path | None]:
     raw_target.mkdir(parents=True, exist_ok=True)
     copied: dict[str, Path | None] = {}
+    release_base_url = paths.get("release_base_url", DEFAULT_RELEASE_BASE_URL).rstrip("/") + "/"
+    downloader = downloader or urllib_download_file
 
-    for key in ("bac120_taxonomy_source", "ar53_taxonomy_source", "bac120_tree_source"):
+    for key, official_name in OFFICIAL_SUPPORT_FILES.items():
         source = Path(paths[key])
         destination = raw_target / source.name
-        shutil.copy2(source, destination)
-        copied[key] = destination
+        if source.is_file():
+            shutil.copy2(source, destination)
+            copied[key] = destination
+            continue
+        download_target = raw_target / source.name
+        downloader(release_base_url + official_name, download_target)
+        copied[key] = download_target
 
-    ar53_tree = find_ar53_tree(Path(paths["gtdb_root"]))
+    ar53_tree_source = Path(paths.get("ar53_tree_source", ""))
+    ar53_tree = ar53_tree_source if ar53_tree_source.is_file() else find_ar53_tree(Path(paths["gtdb_root"]))
     copied["ar53_tree"] = None
-    if ar53_tree is not None:
+    if ar53_tree is not None and ar53_tree.is_file():
         destination = raw_target / ar53_tree.name
         shutil.copy2(ar53_tree, destination)
         copied["ar53_tree"] = destination
+    else:
+        download_target = raw_target / "ar53_r232.tree"
+        downloader(release_base_url + "ar53.tree", download_target)
+        copied["ar53_tree"] = download_target
 
     return copied
 
@@ -248,6 +277,12 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def urllib_download_file(url: str, destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with urllib.request.urlopen(url) as response, destination.open("wb") as handle:
+        shutil.copyfileobj(response, handle)
+
+
 def available_disk_bytes(path: Path) -> int:
     return shutil.disk_usage(path).free
 
@@ -283,7 +318,7 @@ def run_p01_audit(paths: dict[str, str], source: Path, target: Path, threads: in
     ensure_sufficient_free_space(free_bytes, int(source_summary["byte_count"]))
 
     copy_raw_genomes(source, target)
-    support_files = copy_support_files(paths, target.parent)
+    support_files = ensure_support_files(paths, target.parent)
 
     target_summary = summarize_tree(target)
     if source_summary["file_count"] != target_summary["file_count"]:
