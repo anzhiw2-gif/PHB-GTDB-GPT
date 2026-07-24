@@ -42,5 +42,6 @@ __pycache__/
 .venv/
 env/
 .env
+config/paths.yaml
 .DS_Store
 Thumbs.db

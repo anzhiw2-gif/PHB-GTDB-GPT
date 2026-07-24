@@ -35,6 +35,16 @@ class RepositoryLayoutTest(unittest.TestCase):
         )
         self.assertEqual(ignored.returncode, 0, ignored.stderr)
 
+    def test_machine_specific_paths_are_ignored(self) -> None:
+        ignored = subprocess.run(
+            ["git", "check-ignore", "config/paths.yaml"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(ignored.returncode, 0, ignored.stderr)
+
     def test_repository_validator_succeeds(self) -> None:
         result = subprocess.run(
             [sys.executable, "scripts/validate_repository.py"],
