@@ -9,12 +9,15 @@ import unittest
 from scripts.p01_audit_gtdb import (
     collect_tool_versions,
     copy_support_files,
+    copy_raw_genomes,
     ensure_sufficient_free_space,
     find_ar53_tree,
     iter_file_manifest,
     load_paths_config,
     select_checksum_sample,
     summarize_tree,
+    verify_sampled_hashes,
+    write_manifest,
     validate_copy_plan,
 )
 
@@ -171,6 +174,62 @@ class P01AuditGTDBTest(unittest.TestCase):
             self.assertEqual((raw_target / "bac120_r232.tree").read_text(encoding="utf-8"), "tree")
             self.assertEqual((raw_target / "ar53_r232.tree").read_text(encoding="utf-8"), "ar-tree")
             self.assertEqual(copied["ar53_tree"], raw_target / "ar53_r232.tree")
+
+    def test_copy_raw_genomes_invokes_rsync_with_expected_flags(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            target = root / "target"
+            source.mkdir()
+            target.mkdir()
+            calls: list[list[str]] = []
+
+            def fake_runner(command: list[str], **_: object) -> object:
+                calls.append(command)
+
+                class Result:
+                    returncode = 0
+                    stdout = ""
+                    stderr = ""
+
+                return Result()
+
+            copy_raw_genomes(source, target, runner=fake_runner)
+
+            self.assertEqual(calls[0][0], "rsync")
+            self.assertIn("--info=progress2", calls[0])
+            self.assertIn("-aHAX", calls[0])
+            self.assertEqual(calls[0][-2:], [f"{source.as_posix()}/", f"{target.as_posix()}/"])
+
+    def test_write_manifest_emits_tsv(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest_path = Path(tmp) / "manifest.tsv"
+            records = [
+                {"relative_path": "a.txt", "bytes": 1, "mtime_utc": "2026-07-24T00:00:00Z", "sha256": "aaa"},
+                {"relative_path": "b.txt", "bytes": 2, "mtime_utc": "2026-07-24T00:00:01Z", "sha256": "bbb"},
+            ]
+
+            write_manifest(manifest_path, records)
+
+            self.assertEqual(
+                manifest_path.read_text(encoding="utf-8"),
+                "relative_path\tbytes\tmtime_utc\tsha256\n"
+                "a.txt\t1\t2026-07-24T00:00:00Z\taaa\n"
+                "b.txt\t2\t2026-07-24T00:00:01Z\tbbb\n",
+            )
+
+    def test_verify_sampled_hashes_detects_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            target = root / "target"
+            source.mkdir()
+            target.mkdir()
+            (source / "one.txt").write_bytes(b"1")
+            (target / "one.txt").write_bytes(b"2")
+
+            with self.assertRaisesRegex(RuntimeError, "checksum mismatch"):
+                verify_sampled_hashes(source, target, [source / "one.txt"])
 
 
 if __name__ == "__main__":

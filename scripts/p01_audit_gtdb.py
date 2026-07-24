@@ -7,15 +7,16 @@ manifests for the raw GTDB copy stage.
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import math
+import os
 import shutil
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Iterable, Sequence
-
-import yaml
 
 
 REQUIRED_PATH_KEYS = (
@@ -32,15 +33,35 @@ CommandRunner = Callable[..., object]
 
 
 def load_paths_config(config_path: Path) -> dict[str, str]:
-    data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict):
-        raise ValueError(f"{config_path} must contain a mapping at the top level")
+    return _parse_paths_file(config_path.read_text(encoding="utf-8"), config_path)
 
-    paths = data.get("paths")
-    if not isinstance(paths, dict):
+
+def _parse_paths_file(text: str, config_path: Path) -> dict[str, str]:
+    paths: dict[str, str] = {}
+    current_section: str | None = None
+
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip()
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if not line.startswith(" "):
+            if not stripped.endswith(":"):
+                raise ValueError(f"{config_path} has invalid top-level line: {raw_line}")
+            current_section = stripped[:-1]
+            continue
+        if current_section != "paths":
+            continue
+        if ":" not in stripped:
+            raise ValueError(f"{config_path} has invalid path line: {raw_line}")
+        key, value = stripped.split(":", 1)
+        paths[key.strip()] = value.strip()
+
+    if current_section is None:
+        raise ValueError(f"{config_path} must contain a top-level section")
+    if not paths:
         raise ValueError(f"{config_path} must contain a 'paths' mapping")
-
-    return {str(key): str(value) for key, value in paths.items()}
+    return paths
 
 
 def validate_copy_plan(source: Path, target: Path, project_dir: Path) -> list[str]:
@@ -59,17 +80,18 @@ def validate_copy_plan(source: Path, target: Path, project_dir: Path) -> list[st
     return errors
 
 
-def iter_file_manifest(root: Path) -> Iterable[dict[str, object]]:
+def iter_file_manifest(root: Path, max_workers: int | None = None) -> Iterable[dict[str, object]]:
     root = root.resolve(strict=False)
-    for path in sorted(p for p in root.rglob("*") if p.is_file()):
-        payload = path.read_bytes()
-        stat = path.stat()
-        yield {
-            "relative_path": path.relative_to(root).as_posix(),
-            "bytes": len(payload),
-            "mtime_utc": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat().replace("+00:00", "Z"),
-            "sha256": hashlib.sha256(payload).hexdigest(),
-        }
+    files = sorted(p for p in root.rglob("*") if p.is_file())
+    worker_count = min(max_workers or 60, os.cpu_count() or 1, max(1, len(files)))
+    if worker_count == 1:
+        for path in files:
+            yield _manifest_row(root, path)
+        return
+
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        for row in executor.map(lambda path: _manifest_row(root, path), files):
+            yield row
 
 
 def summarize_tree(root: Path) -> dict[str, object]:
@@ -91,6 +113,50 @@ def summarize_tree(root: Path) -> dict[str, object]:
         "byte_count": byte_count,
         "top_level_bytes": dict(sorted(top_level_bytes.items())),
     }
+
+
+def copy_raw_genomes(source: Path, target: Path, runner: CommandRunner = subprocess.run) -> None:
+    target.mkdir(parents=True, exist_ok=True)
+    command = [
+        "rsync",
+        "-aHAX",
+        "--info=progress2",
+        f"{source.resolve(strict=False).as_posix().rstrip('/')}/",
+        f"{target.resolve(strict=False).as_posix().rstrip('/')}/",
+    ]
+    result = runner(command, capture_output=True, text=True, check=False)
+    if getattr(result, "returncode", 1) != 0:
+        raise RuntimeError(
+            "rsync failed: "
+            f"{getattr(result, 'stdout', '')}{getattr(result, 'stderr', '')}".strip()
+        )
+
+
+def write_manifest(manifest_path: Path, records: Iterable[dict[str, object]]) -> None:
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    with manifest_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=["relative_path", "bytes", "mtime_utc", "sha256"],
+            delimiter="\t",
+            lineterminator="\n",
+        )
+        writer.writeheader()
+        for record in records:
+            writer.writerow(record)
+
+
+def verify_sampled_hashes(source_root: Path, target_root: Path, sample_paths: Sequence[Path]) -> int:
+    verified = 0
+    for source_path in sample_paths:
+        relative = source_path.resolve(strict=False).relative_to(source_root.resolve(strict=False))
+        target_path = target_root.resolve(strict=False) / relative
+        if not target_path.is_file():
+            raise RuntimeError(f"missing copied file: {target_path}")
+        if _sha256(source_path) != _sha256(target_path):
+            raise RuntimeError(f"checksum mismatch: {relative.as_posix()}")
+        verified += 1
+    return verified
 
 
 def find_ar53_tree(gtdb_root: Path) -> Path | None:
@@ -163,6 +229,25 @@ def _probe_command_version(command: Sequence[str], runner: CommandRunner = subpr
     return stdout or stderr or "no version output"
 
 
+def _manifest_row(root: Path, path: Path) -> dict[str, object]:
+    payload = path.read_bytes()
+    stat = path.stat()
+    return {
+        "relative_path": path.relative_to(root).as_posix(),
+        "bytes": len(payload),
+        "mtime_utc": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat().replace("+00:00", "Z"),
+        "sha256": hashlib.sha256(payload).hexdigest(),
+    }
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def available_disk_bytes(path: Path) -> int:
     return shutil.disk_usage(path).free
 
@@ -192,6 +277,42 @@ def build_tool_command_map() -> dict[str, list[str]]:
     }
 
 
+def run_p01_audit(paths: dict[str, str], source: Path, target: Path, threads: int) -> dict[str, object]:
+    source_summary = summarize_tree(source)
+    free_bytes = available_disk_bytes(target.parent)
+    ensure_sufficient_free_space(free_bytes, int(source_summary["byte_count"]))
+
+    copy_raw_genomes(source, target)
+    support_files = copy_support_files(paths, target.parent)
+
+    target_summary = summarize_tree(target)
+    if source_summary["file_count"] != target_summary["file_count"]:
+        raise RuntimeError(
+            f"file count mismatch: source={source_summary['file_count']} target={target_summary['file_count']}"
+        )
+    if source_summary["byte_count"] != target_summary["byte_count"]:
+        raise RuntimeError(
+            f"byte count mismatch: source={source_summary['byte_count']} target={target_summary['byte_count']}"
+        )
+    if source_summary["top_level_bytes"] != target_summary["top_level_bytes"]:
+        raise RuntimeError("top-level byte counts do not match between source and target")
+
+    sample_paths = select_checksum_sample(source, minimum=1000, fraction=0.01)
+    verified = verify_sampled_hashes(source, target, sample_paths)
+    manifest_path = target.parent / "manifests" / "raw_genomes_manifest.tsv"
+    write_manifest(manifest_path, iter_file_manifest(target, max_workers=threads))
+    tool_versions = collect_tool_versions(build_tool_command_map())
+
+    return {
+        "source_summary": source_summary,
+        "target_summary": target_summary,
+        "sample_verified": verified,
+        "manifest_path": manifest_path,
+        "support_files": support_files,
+        "tool_versions": tool_versions,
+    }
+
+
 def _is_within_project_dir(path: Path, project_dir: Path) -> bool:
     try:
         path.relative_to(project_dir)
@@ -205,6 +326,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--paths", required=True, type=Path, help="Path to config/paths.yaml")
     parser.add_argument("--source", type=Path, help="Raw GTDB source directory")
     parser.add_argument("--target", type=Path, help="Copy target directory")
+    parser.add_argument("--threads", type=int, default=60, help="Maximum manifest hashing threads, capped at 60")
     parser.add_argument(
         "--copy-support-files",
         action="store_true",
@@ -228,19 +350,22 @@ def main(argv: list[str] | None = None) -> int:
     if errors:
         raise SystemExit("; ".join(errors))
 
-    summary = summarize_tree(source)
-    tool_versions = collect_tool_versions(build_tool_command_map())
-    free_bytes = available_disk_bytes(target.parent)
-    ensure_sufficient_free_space(free_bytes, int(summary["byte_count"]))
-    copied_support = copy_support_files(paths, target.parent) if args.copy_support_files else {}
+    result = run_p01_audit(paths, source, target, threads=min(60, args.threads))
 
     print(f"Validated P01 copy plan from {source} to {target}.")
-    print(f"Source file count: {summary['file_count']}")
-    print(f"Source byte count: {summary['byte_count']}")
-    print(f"Free bytes at target parent: {free_bytes}")
-    print(f"Collected tool versions for {len(tool_versions)} tools.")
+    print(f"Source file count: {result['source_summary']['file_count']}")
+    print(f"Source byte count: {result['source_summary']['byte_count']}")
+    print(f"Target file count: {result['target_summary']['file_count']}")
+    print(f"Target byte count: {result['target_summary']['byte_count']}")
+    print(f"Sampled checksum verifications: {result['sample_verified']}")
+    print(f"Manifest written: {result['manifest_path']}")
+    print(f"Collected tool versions for {len(result['tool_versions'])} tools.")
+    copied_support = result["support_files"]
     if copied_support:
-        print(f"Copied support files: {', '.join(sorted(key for key, value in copied_support.items() if value is not None))}")
+        print(
+            "Copied support files: "
+            + ", ".join(sorted(key for key, value in copied_support.items() if value is not None))
+        )
     return 0
 
 
