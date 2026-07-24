@@ -1,0 +1,11 @@
+prediction:
+  stage: P02
+  selected_predictor: pyrodigal
+  selected_mode: meta
+  selected_interface: GeneFinder(meta=True)
+  applies_to: all_GTDB_assemblies
+  threads_max: 60
+  rationale: >
+    Use the single metagenomic predictor route that is officially exposed
+    through Pyrodigal and matches Prodigal meta-mode behavior, keeping the
+    pipeline deterministic and uniform across GTDB assemblies.

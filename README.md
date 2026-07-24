@@ -9,7 +9,7 @@ The project combines experimentally supported reference sequences, DED family de
 | Stage | Purpose |
 | --- | --- |
 | P01 | Audit and physically copy unfiltered GTDB R232 inputs on T141. |
-| P02 | Benchmark Pyrodigal meta mode and Prodigal modes on a deterministic GTDB subset. |
+| P02 | Lock the predictor route to Pyrodigal GeneFinder(meta=True) on a deterministic GTDB subset. |
 | P03 | Predict and quality-control complete GTDB proteomes. |
 | P04 | Build an auditable experimental reference library and family definitions. |
 | P05 | Build and calibrate family HMMs. |
