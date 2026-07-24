@@ -22,6 +22,12 @@ KNOWN_FASTA_SUFFIXES = (
 )
 ALLOWED_AA = set("ACDEFGHIKLMNPQRSTVWYBXZJUO*")
 DEFAULT_MAX_THREADS = 60
+DEFAULT_GZIP_LEVEL = 0
+
+try:  # pragma: no cover - optional runtime accelerator on T141
+    from isal import igzip as gzip_backend
+except ImportError:  # pragma: no cover - fallback for local test environments
+    gzip_backend = gzip
 
 Predictor = Callable[[Path, str, str], dict[str, object]]
 
@@ -173,7 +179,7 @@ def write_prediction_outputs(genome_result: dict[str, object], faa_path: Path, g
     faa_path.parent.mkdir(parents=True, exist_ok=True)
     gff_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with gzip.open(faa_path, "wt", encoding="utf-8", newline="\n", compresslevel=1) as faa_handle:
+    with gzip_backend.open(faa_path, "wt", encoding="utf-8", newline="\n", compresslevel=DEFAULT_GZIP_LEVEL) as faa_handle:
         for contig in contigs:
             contig_id = str(contig["contig_id"])
             for gene in contig.get("genes", []):
@@ -181,7 +187,7 @@ def write_prediction_outputs(genome_result: dict[str, object], faa_path: Path, g
                 faa_handle.write(f">{protein_id}\n")
                 faa_handle.write(f"{gene['translation']}\n")
 
-    with gzip.open(gff_path, "wt", encoding="utf-8", newline="\n", compresslevel=1) as gff_handle:
+    with gzip_backend.open(gff_path, "wt", encoding="utf-8", newline="\n", compresslevel=DEFAULT_GZIP_LEVEL) as gff_handle:
         gff_handle.write("##gff-version 3\n")
         for contig in contigs:
             contig_id = str(contig["contig_id"])
