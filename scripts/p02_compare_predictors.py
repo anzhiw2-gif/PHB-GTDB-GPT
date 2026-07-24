@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import csv
 import gzip
+import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from statistics import mean
 from typing import Callable, Iterable
@@ -40,18 +42,27 @@ def collect_pyrodigal_metrics(
     genome_paths: Iterable[Path],
     policy: dict[str, str],
     predictor: Predictor | None = None,
+    threads: int = 1,
 ) -> dict[str, object]:
     predictor = predictor or run_pyrodigal_meta
     mode = policy["selected_mode"]
-    metrics = []
-    for genome_path in genome_paths:
+    paths = list(genome_paths)
+    worker_count = min(max(1, threads), 60, os.cpu_count() or 1, max(1, len(paths)))
+
+    def collect_one(genome_path: Path) -> dict[str, object]:
         try:
             row = predictor(genome_path, mode)
             row["status"] = "ok"
         except Exception as error:
             row = failed_metric_row(error)
         row["genome_path"] = str(genome_path)
-        metrics.append(row)
+        return row
+
+    if worker_count == 1:
+        metrics = [collect_one(path) for path in paths]
+    else:
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            metrics = list(executor.map(collect_one, paths))
 
     return {
         "policy": policy,
@@ -171,13 +182,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--selection", required=True, type=Path)
     parser.add_argument("--policy", required=True, type=Path)
     parser.add_argument("--out", required=True, type=Path)
+    parser.add_argument("--threads", type=int, default=60, help="Maximum Pyrodigal worker threads, capped at 60")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
     policy = load_p02_policy(args.policy)
-    result = collect_pyrodigal_metrics(load_benchmark_paths(args.selection), policy)
+    result = collect_pyrodigal_metrics(load_benchmark_paths(args.selection), policy, threads=args.threads)
     write_metrics(args.out, result["metrics"])
     print(f"Wrote Pyrodigal benchmark metrics for {result['genome_count']} genomes: {args.out}")
     return 0

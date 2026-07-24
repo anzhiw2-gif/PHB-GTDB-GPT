@@ -137,6 +137,34 @@ class P02PredictorMetricsTest(unittest.TestCase):
             self.assertEqual(result["metrics"][1]["status"], "failed")
             self.assertEqual(result["metrics"][1]["error"], "cannot parse")
 
+    def test_collect_pyrodigal_metrics_preserves_order_with_threads(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = [root / "a.fna", root / "b.fna"]
+            for path in paths:
+                path.write_text(">x\nACGT\n", encoding="utf-8")
+
+            def fake_predictor(path: Path, mode: str) -> dict[str, object]:
+                return {
+                    "predicted_genes": 1 if path.name == "a.fna" else 2,
+                    "internal_stops": 0,
+                    "illegal_amino_acids": 0,
+                    "coding_density": 0.5,
+                    "mean_protein_length": 10.0,
+                    "short_orfs": 1,
+                    "overlaps": 0,
+                    "control_profiles_recovered": 0,
+                }
+
+            result = collect_pyrodigal_metrics(
+                paths,
+                {"selected_predictor": "pyrodigal", "selected_mode": "meta"},
+                predictor=fake_predictor,
+                threads=2,
+            )
+
+            self.assertEqual([row["genome_path"] for row in result["metrics"]], [str(paths[0]), str(paths[1])])
+
 
 if __name__ == "__main__":
     unittest.main()
