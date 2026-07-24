@@ -1,0 +1,46 @@
+# Raw GTDB inputs are physically stored on T141, never in Git.
+00_raw_gtdb_r232/*
+!00_raw_gtdb_r232/README.md
+
+# Generated, potentially very large analysis outputs.
+02_prediction_benchmark/predictions/
+02_prediction_benchmark/qc/
+03_gtdb_proteomes/faa/
+03_gtdb_proteomes/gff/
+03_gtdb_proteomes/qc/
+03_gtdb_proteomes/manifests/
+04_family_profiles/alignments/
+04_family_profiles/hmms/
+04_family_profiles/calibration/
+05_hmmer_scan/raw_hits/
+05_hmmer_scan/filtered_hits/
+05_hmmer_scan/candidates/
+05_hmmer_scan/qc/
+06_domain_annotation/input/
+06_domain_annotation/interpro/
+06_domain_annotation/localization/
+06_domain_annotation/review/
+07_phylogeny/family_fastas/
+07_phylogeny/alignments/
+07_phylogeny/trees/
+07_phylogeny/gtdb_mapping/
+07_phylogeny/annotations/
+08_reports/tables/
+08_reports/figures/
+08_reports/qc/
+08_reports/manuscript_ready/
+
+# Workflow runtime and local development artifacts.
+work/
+.nextflow/
+.nextflow.log*
+results/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+.venv/
+env/
+.env
+.DS_Store
+Thumbs.db

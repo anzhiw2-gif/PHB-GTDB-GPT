@@ -1,0 +1,15 @@
+project:
+  name: PHB-GTDB-GPT
+  stage_prefix: P
+  gtdb_release: R232
+  gtdb_release_name: GTDB Release 11
+  scope: PHB/PHA depolymerase family census and phylogenetic review
+
+scientific_policy:
+  approach: DED_and_TIGRFAM_combined_reference_library
+  claim_boundary: Homology and domain evidence do not alone prove PHB-degradation phenotype.
+  prior_project_role: Read-only historical evidence; do not compare or overwrite prior results.
+
+provenance:
+  hash_algorithm: sha256
+  random_seed: 20260724

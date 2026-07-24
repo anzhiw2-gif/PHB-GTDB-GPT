@@ -1,0 +1,9 @@
+# Copy to config/paths.yaml on T141 and adjust only after P01 auditing.
+paths:
+  project_dir: /home/data/haoyu/PHB-GTDB-GPT
+  gtdb_root: /home/data/haoyu/GTDB
+  gtdb_genomes_source: /home/data/haoyu/GTDB/gtdb_genomes_reps_r232/database
+  old_project_readonly: /home/data/haoyu/PHB_gtdb
+  bac120_taxonomy_source: /home/data/haoyu/GTDB/taxonomy/bac120_taxonomy_r232.tsv
+  ar53_taxonomy_source: /home/data/haoyu/GTDB/taxonomy/ar53_taxonomy_r232.tsv
+  bac120_tree_source: /home/data/haoyu/GTDB/GTDB_tree/bac120_r232.tree

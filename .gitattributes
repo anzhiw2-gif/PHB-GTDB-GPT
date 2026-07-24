@@ -1,0 +1,13 @@
+* text=auto eol=lf
+*.nf text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.py text eol=lf
+*.tsv text eol=lf
+*.fasta text eol=lf
+*.faa text eol=lf
+*.gz binary
+*.zip binary
+*.pdf binary
+*.png binary
+*.svg text eol=lf
