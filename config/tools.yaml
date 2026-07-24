@@ -1,0 +1,15 @@
+# Populate on T141 during P01 with audited tool versions and command locations.
+tools:
+  python: null
+  nextflow: null
+  java: null
+  slurm: null
+  prodigal: null
+  pyrodigal: null
+  hmmer: null
+  mafft: null
+  iqtree2: null
+  fasttree: null
+  interproscan: null
+  signalp: null
+  phobius: null
