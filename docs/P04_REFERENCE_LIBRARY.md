@@ -28,6 +28,11 @@ The split is intentional. Bacterial PHB/PHA depolymerases have multiple
 literature-supported families, while archaeal candidates are sparse and should
 not be used to inflate bacterial positive seeds.
 
+Within the bacterial library, keep the PHB-specific core strict and allow only
+a small PHA bridge set when it is needed to cover major DED family branches
+that lack a cleaner PHB-only seed. Bridge rows should stay explicitly labeled
+in notes and must not replace the PHB core.
+
 ## Canonical Family Categories
 
 - `intracellular_phaZ_no_lipase_box`

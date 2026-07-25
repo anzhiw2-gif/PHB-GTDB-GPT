@@ -51,6 +51,11 @@ strong functional evidence with explicit limitations, such as curated protein
 records backed by literature or characterized gene products where the sequence
 identity is clear.
 
+Keep the PHB-specific nucleus strict. Admit a small number of literature-
+supported PHA bridge rows only when they are needed to keep the major DED
+family branches represented; mark them clearly in notes so they do not blur the
+core PHB set.
+
 Do not admit annotation-only `E3` bacterial rows as seeds. Store them as
 tracked candidates or excluded rows when they are useful for boundary review.
 
