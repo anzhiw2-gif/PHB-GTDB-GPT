@@ -8,6 +8,45 @@ P02 confirms the single production predictor route:
 Pyrodigal GeneFinder(meta=True)
 ```
 
+## P02 implementation record
+
+Tracked P02 source files:
+
+- `scripts/p02_select_benchmark_genomes.py`
+- `scripts/p02_compare_predictors.py`
+- `tests/test_p02_predictor_metrics.py`
+- `config/prediction_policy.yaml`
+
+Representative T141 commands:
+
+```bash
+cd /home/data/haoyu/PHB-GTDB-GPT
+python scripts/p02_select_benchmark_genomes.py \
+  --genomes-root /home/data/haoyu/PHB-GTDB-GPT/00_raw_gtdb_r232/genomes \
+  --taxonomy /home/data/haoyu/PHB-GTDB-GPT/00_raw_gtdb_r232/bac120_taxonomy_r232.tsv \
+  --taxonomy /home/data/haoyu/PHB-GTDB-GPT/00_raw_gtdb_r232/ar53_taxonomy_r232.tsv \
+  --sample-size 240 \
+  --seed 20260724 \
+  --out /home/data/haoyu/PHB-GTDB-GPT/02_prediction_benchmark/qc/benchmark_genomes.tsv
+
+python scripts/p02_compare_predictors.py \
+  --selection /home/data/haoyu/PHB-GTDB-GPT/02_prediction_benchmark/qc/benchmark_genomes.tsv \
+  --policy /home/data/haoyu/PHB-GTDB-GPT/config/prediction_policy.yaml \
+  --out /home/data/haoyu/PHB-GTDB-GPT/02_prediction_benchmark/qc/pyrodigal_meta_metrics.tsv \
+  --threads 60
+```
+
+The benchmark outputs are:
+
+- `02_prediction_benchmark/qc/benchmark_genomes.tsv`
+- `02_prediction_benchmark/qc/pyrodigal_meta_metrics.tsv`
+
+Implementation history:
+
+- `808a5a8` `feat: add P02 Pyrodigal benchmark scripts`
+- `f4b1102` `feat: parallelize P02 Pyrodigal metrics`
+- `0c4401a` `docs: record P02 benchmark decision`
+
 ## Inputs
 
 - Raw genomes: `/home/data/haoyu/PHB-GTDB-GPT/00_raw_gtdb_r232/genomes`
@@ -40,6 +79,10 @@ Generated P02 TSV outputs remain ignored by Git.
 - Short ORFs total: 2257
 - Internal stops reported by the P02 metric script: 0
 - Illegal amino acids reported by the P02 metric script: 0
+- Benchmark selection rows: 240
+- Benchmark metric rows: 240
+- Benchmark metric failures: 0
+- Mean predicted genes per genome: 2454.30
 
 ## Decision
 

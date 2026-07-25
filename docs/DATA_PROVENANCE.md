@@ -2,6 +2,52 @@
 
 P01 is responsible for creating the first auditable input snapshot for this project.
 
+## P01 implementation record
+
+Tracked P01 source files:
+
+- `scripts/p01_audit_gtdb.py`
+- `tests/test_p01_audit_gtdb.py`
+
+Representative T141 command:
+
+```bash
+cd /home/data/haoyu/PHB-GTDB-GPT
+python scripts/p01_audit_gtdb.py \
+  --paths config/paths.yaml \
+  --source /home/data/haoyu/GTDB/gtdb_genomes_reps_r232/database \
+  --target /home/data/haoyu/PHB-GTDB-GPT/00_raw_gtdb_r232/genomes \
+  --threads 60
+```
+
+The audit performs a physical copy with `rsync -aHAX --info=progress2`, then validates the copy by:
+
+- comparing source and target file counts
+- comparing source and target total byte counts
+- comparing per-top-level-directory byte counts
+- verifying at least 1,000 sampled SHA256 hashes, which is also at least 1% of copied files
+- copying the support files into `00_raw_gtdb_r232/`
+
+The P01 tracked outputs on T141 are:
+
+- `00_raw_gtdb_r232/genomes/`
+- `00_raw_gtdb_r232/bac120_taxonomy_r232.tsv`
+- `00_raw_gtdb_r232/ar53_taxonomy_r232.tsv`
+- `00_raw_gtdb_r232/bac120_r232.tree`
+- `00_raw_gtdb_r232/ar53_r232.tree`
+- `00_raw_gtdb_r232/manifests/raw_genomes_manifest.tsv`
+
+Observed completion state:
+
+- raw genome manifest rows: `199,924`
+- source and target reconciliation: passed
+- sampled checksum verification: passed
+
+P01 implementation history:
+
+- `a0e1ccc` `feat: extend P01 audit tooling`
+- `80c7930` `feat: make P01 audit executable`
+
 Required provenance for the raw GTDB copy:
 
 - Source release and source paths from `config/paths.yaml`

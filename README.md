@@ -25,6 +25,12 @@ The source repository is maintained locally and mirrored to GitHub. Compute-inte
 
 Raw GTDB files, predicted proteomes, HMMER tables, InterPro results, Nextflow work directories, and generated reports are deliberately ignored by Git. They remain auditable through manifests produced by the workflow.
 
+Detailed stage records:
+
+- [docs/DATA_PROVENANCE.md](docs/DATA_PROVENANCE.md) for the P01 audit, copy, and manifest trail
+- [docs/P02_BENCHMARK_DECISION.md](docs/P02_BENCHMARK_DECISION.md) for the P02 benchmark selection and predictor lock
+- [docs/PREDICTION_POLICY.md](docs/PREDICTION_POLICY.md) for the production prediction policy used by P03
+
 ## Initial Validation
 
 ```powershell
