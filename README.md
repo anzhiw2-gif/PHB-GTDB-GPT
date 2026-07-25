@@ -1,41 +1,91 @@
 # PHB-GTDB-GPT
 
-Reproducible, family-resolved analysis of PHB/PHA depolymerase-related genes in GTDB Release 11 R232.
+这是一个面向 GTDB Release 11 / R232 的 PHB/PHA depolymerase 相关基因分析项目。
 
-The project combines experimentally supported reference sequences, DED family definitions, TIGRFAM profiles, custom HMMs, domain-architecture review, and family-specific phylogenetic analysis. A detected homolog is reported as sequence evidence; it is not treated as proof of PHB-degradation phenotype.
+项目主线是：
+用经过实验支持的参考序列、DED family definitions、TIGRFAM profiles、自建 HMM、domain architecture review 和 family-level phylogenetic analysis，
+去做一套可追溯、可复现、分家族的系统分析。
 
-## Workflow Stages
+这里检测到的同源蛋白只被当作 sequence evidence，不会被直接当成“已经证明具备 PHB 降解表型”。
 
-| Stage | Purpose |
+## 当前阶段
+
+| 阶段 | 说明 |
 | --- | --- |
-| P01 | Audit and physically copy unfiltered GTDB R232 inputs on T141. |
-| P02 | Lock the predictor route to Pyrodigal GeneFinder(meta=True) on a deterministic GTDB subset. |
-| P03 | Predict and quality-control complete GTDB proteomes. |
-| P04 | Build an auditable experimental reference library and family definitions. |
-| P05 | Build and calibrate family HMMs. |
-| P06 | Scan GTDB proteomes with HMMER and apply family-specific gates. |
-| P07 | Review InterPro domain architecture and localization evidence. |
-| P08 | Build family trees and join candidates to GTDB taxonomy and species trees. |
-| P09 | Produce tables, figures, reports, and provenance manifests. |
-| P10 | Optionally validate compatible metabolic models with COBRApy. |
+| P01 | 在 T141 上审计并物理复制未过滤的 GTDB R232 输入。 |
+| P02 | 用确定性的 GTDB 子集锁定唯一生产预测路线 `Pyrodigal GeneFinder(meta=True)`。 |
+| P03 | 预测全量 GTDB proteomes，并做基础 QC。 |
+| P04 | 构建可审计的实验参考库和 family definitions。 |
+| P05 | 构建并校准 family HMMs。 |
+| P06 | 用 HMMER 扫描 GTDB proteomes，并按 family 规则筛选。 |
+| P07 | 做 InterPro domain architecture 和 localization 复核。 |
+| P08 | 构建 family trees，并结合 GTDB taxonomy / species tree 分析。 |
+| P09 | 输出表格、图、报告和 provenance manifests。 |
+| P10 | 可选：在合适的 SBML/JSON model 上做 COBRApy 验证。 |
 
-## Execution Environment
+## 目录说明
 
-The source repository is maintained locally and mirrored to GitHub. Compute-intensive execution occurs on T141 under `/home/data/haoyu/PHB-GTDB-GPT`; see `config/paths.example.yaml` before creating the server-side configuration.
+主要阶段性文档在 `docs/`：
 
-Raw GTDB files, predicted proteomes, HMMER tables, InterPro results, Nextflow work directories, and generated reports are deliberately ignored by Git. They remain auditable through manifests produced by the workflow.
+- [docs/DATA_PROVENANCE.md](docs/DATA_PROVENANCE.md) 记录 P01 的审计、复制和 manifest 轨迹
+- [docs/P02_BENCHMARK_DECISION.md](docs/P02_BENCHMARK_DECISION.md) 记录 P02 的 benchmark 结果和预测器锁定
+- [docs/PREDICTION_POLICY.md](docs/PREDICTION_POLICY.md) 记录 P03 使用的生产预测策略
 
-Detailed stage records:
+主要脚本在 `scripts/`：
 
-- [docs/DATA_PROVENANCE.md](docs/DATA_PROVENANCE.md) for the P01 audit, copy, and manifest trail
-- [docs/P02_BENCHMARK_DECISION.md](docs/P02_BENCHMARK_DECISION.md) for the P02 benchmark selection and predictor lock
-- [docs/PREDICTION_POLICY.md](docs/PREDICTION_POLICY.md) for the production prediction policy used by P03
+- `p01_audit_gtdb.py`
+- `p02_select_benchmark_genomes.py`
+- `p02_compare_predictors.py`
+- `p03_predict_proteomes.py`
+- `p03_monitor_progress.py`
 
-## Initial Validation
+## 运行环境
+
+计算密集型任务都在 T141 上执行，项目目录是：
+
+`/home/data/haoyu/PHB-GTDB-GPT`
+
+服务器配置模板见 [config/paths.example.yaml](config/paths.example.yaml)。
+
+Git 不跟踪这些大文件或运行产物：
+
+- 原始 GTDB 文件
+- 预测 proteomes
+- HMMER / InterPro 结果
+- Nextflow work 目录
+- 各类生成报告
+
+这些内容会通过 manifest 和 QC 文件保留可追溯性。
+
+## 快速验证
+
+本地常用检查：
 
 ```powershell
 python -m unittest tests/test_repository_layout.py -v
 python scripts/validate_repository.py
+git diff --check
 ```
 
-The Nextflow workflow requires Java 17+ and Nextflow 24.10.0 or newer on its execution host.
+在 T141 上查看 P03 进度：
+
+```bash
+cd /home/data/haoyu/PHB-GTDB-GPT
+/home/data/haoyu/miniconda3/envs/phb_gtdb/bin/python scripts/p03_monitor_progress.py
+```
+
+只看一眼当前状态：
+
+```bash
+cd /home/data/haoyu/PHB-GTDB-GPT
+/home/data/haoyu/miniconda3/envs/phb_gtdb/bin/python scripts/p03_monitor_progress.py --once --no-clear
+```
+
+## 运行前提
+
+Nextflow 工作流需要 T141 上具备 Java 17+ 和 Nextflow 24.10.0+。
+
+如果你要先看阶段决策，建议从这两个文件开始：
+
+1. [docs/DATA_PROVENANCE.md](docs/DATA_PROVENANCE.md)
+2. [docs/P02_BENCHMARK_DECISION.md](docs/P02_BENCHMARK_DECISION.md)
