@@ -34,6 +34,10 @@ Bundle headers are stable `seed_id|source_accession` identifiers and records
 are written in deterministic seed order. These FASTA files are inputs for
 future MAFFT/HMMER work only; the scaffold does not run those tools.
 
+If the saved P05 plan is missing, the scaffold first materializes it from the
+current manifest and keep-now family classification, then writes the build
+queue from that saved plan.
+
 The command-manifest step adds these ignored files:
 
 - `p05_family_profile_command_manifest.tsv`

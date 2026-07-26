@@ -369,11 +369,20 @@ def build_family_profile_scaffold(
     plan_path: Path,
     outdir: Path,
     minimum_independent_seeds: int = MINIMUM_INDEPENDENT_SEEDS,
+    classification_path: Path | None = DEFAULT_FAMILY_CLASSIFICATION_PATH,
     bundle_dir: Path | None = None,
 ) -> dict[str, Path]:
     """Write the build queue and deterministic seed bundles for eligible families."""
 
     manifest_rows = load_reference_manifest(manifest_path)
+    if not plan_path.exists():
+        plan_outputs = build_family_profile_plan(
+            manifest_path,
+            outdir,
+            minimum_independent_seeds=minimum_independent_seeds,
+            classification_path=classification_path,
+        )
+        plan_path = plan_outputs["plan"]
     plan_rows = load_family_profile_plan(plan_path)
     queue_rows = build_family_profile_queue(
         manifest_rows,
@@ -630,6 +639,7 @@ def main(argv: list[str] | None = None) -> int:
             args.plan_path,
             args.outdir,
             minimum_independent_seeds=args.minimum_independent_seeds,
+            classification_path=args.family_classification,
             bundle_dir=args.bundle_dir,
         )
         print(f"Build queue written: {outputs['queue']}")

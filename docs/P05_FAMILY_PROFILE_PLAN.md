@@ -49,9 +49,10 @@ The planner writes these ignored TSVs under `04_family_profiles/manifests/`:
 ## Build Scaffold
 
 The next deterministic step consumes both the normalized P04 manifest and the
-saved P05 plan. It rechecks that the manifest and plan agree on the qualifying
-source accessions for each family and only then writes a build queue for the
-eligible families.
+saved P05 plan. If the saved plan is missing, the scaffold first materializes
+it from the current manifest and keep-now family classification, then rechecks
+that the manifest and plan agree on the qualifying source accessions for each
+family before writing a build queue for the eligible families.
 
 The scaffold writes these ignored TSVs under `04_family_profiles/manifests/`:
 

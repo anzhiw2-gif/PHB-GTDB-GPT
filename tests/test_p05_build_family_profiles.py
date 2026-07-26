@@ -120,6 +120,77 @@ class P05BuildFamilyProfilesTest(unittest.TestCase):
             self.assertTrue((outdir / "p05_family_hmm_build_scaffold_queue.tsv").is_file())
             self.assertTrue((outdir / "p05_family_hmm_build_scaffold_summary.tsv").is_file())
 
+    def test_main_build_scaffold_mode_generates_plan_when_missing(self) -> None:
+        rows = [
+            self._seed_row(seed_id="seed-a1", family_category="phaZ7_like", source_accession="A1"),
+            self._seed_row(seed_id="seed-a2", family_category="phaZ7_like", source_accession="A2"),
+            self._seed_row(seed_id="seed-a3", family_category="phaZ7_like", source_accession="A3", evidence_level="E2"),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = root / "reference_library.normalized.tsv"
+            classification = root / "p05_family_keep_now.tsv"
+            for index, row in enumerate(rows, start=1):
+                sequence_path = Path(row["sequence_path"])
+                sequence_file = sequence_path if sequence_path.is_absolute() else root / sequence_path
+                sequence_file.parent.mkdir(parents=True, exist_ok=True)
+                sequence_file.write_text(
+                    f">input-{index}\n{'M' * (10 + index)}\n",
+                    encoding="utf-8",
+                )
+            p05.write_tsv(
+                manifest,
+                rows,
+                (
+                    "seed_id",
+                    "reference_library",
+                    "taxonomic_domain",
+                    "family_category",
+                    "seed_name",
+                    "evidence_level",
+                    "source_database",
+                    "source_accession",
+                    "organism",
+                    "taxon_id",
+                    "retrieval_date",
+                    "sequence_format",
+                    "sequence_length_aa",
+                    "sequence_path",
+                    "notes",
+                ),
+            )
+            p05.write_tsv(
+                classification,
+                [
+                    {
+                        "family_category": "phaZ7_like",
+                        "priority_status": "keep_now",
+                    }
+                ],
+                ("family_category", "priority_status"),
+            )
+
+            outdir = root / "build_manifests"
+            exit_code = p05.main(
+                [
+                    "--manifest",
+                    str(manifest),
+                    "--outdir",
+                    str(outdir),
+                    "--plan-path",
+                    str(root / "missing_plan.tsv"),
+                    "--family-classification",
+                    str(classification),
+                    "--build-scaffold",
+                ]
+            )
+
+            self.assertEqual(exit_code, 0)
+            self.assertTrue((outdir / "p05_family_profile_plan.tsv").is_file())
+            self.assertTrue((outdir / "p05_family_hmm_build_scaffold_queue.tsv").is_file())
+            self.assertTrue((outdir / "p05_family_hmm_build_scaffold_summary.tsv").is_file())
+
     def test_build_family_profile_scaffold_queues_mafft_hmmer_family(self) -> None:
         rows = [
             self._seed_row(seed_id="seed-a1", family_category="phaZ7_like", source_accession="A1"),
