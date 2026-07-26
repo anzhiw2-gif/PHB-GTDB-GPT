@@ -54,7 +54,7 @@ When an eligible family is present, the command-manifest step also prepares the
 ignored `04_family_profiles/alignments/` and `04_family_profiles/hmms/`
 directories for the future MAFFT and HMMER outputs.
 
-As of 2026-07-26, the normalized P04 reference library contains 27 seed rows
-across 10 families. P05 keeps 6 active main branches, and all 6 now meet the
-three-seed HMM threshold, so the real-world build scaffold queue now contains
-6 eligible families.
+As of 2026-07-26, the normalized P04 reference library contains 31 seed rows
+across 10 families after the latest cross-genus bacterial expansion. P05 keeps
+6 active main branches, and all 6 now meet the three-seed HMM threshold, so
+the real-world build scaffold queue now contains 6 eligible families.

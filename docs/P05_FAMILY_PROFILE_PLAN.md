@@ -9,8 +9,9 @@ degradation phenotype.
 
 ## Current Snapshot
 
-The current normalized P04 manifest has 27 seed rows across 10 families after
-the current seed-extension pass, but the default P05 planner now reads
+The current normalized P04 manifest has 31 seed rows across 10 families after
+the current seed-extension pass, including a fresh cross-genus bacterial
+expansion, but the default P05 planner now reads
 [`04_family_profiles/manifests/p05_family_keep_now.tsv`](../04_family_profiles/manifests/p05_family_keep_now.tsv)
 and keeps only the 6 review-level main branches active.
 
