@@ -1,0 +1,8 @@
+seed_id	family_category	source_accession	major_class	priority_status	reason
+bac-O87189	intracellular_phaZ_no_lipase_box	O87189	intracellular PhaZ core	keep_now	Review-level intracellular trunk with direct literature support; useful as the main bacterial intracellular PHB branch.
+bac-Q5Y152	intracellular_mcl_pha_dep	Q5Y152	intracellular mcl-PHA	keep_now	Direct biochemical evidence for intracellular mcl-PHA depolymerase; one of the main substrate-specific branches.
+bac-P12625	extracellular_scl_pha_dep_type_I	P12625	extracellular scl-PHA type I	keep_now	Canonical extracellular short-chain-length branch with strong literature support.
+bac-O05527	extracellular_scl_pha_dep_type_II	O05527	extracellular scl-PHA type II	keep_now	Canonical extracellular short-chain-length branch and the complementary type II lineage.
+bac-Q51718	extracellular_mcl_pha_dep	Q51718	extracellular mcl-PHA	keep_now	Main extracellular medium-chain-length branch, distinct from the scl depolymerases.
+arc-AFK21580	archaeal_patatin_like_pha_dep	AFK21580.1	archaeal patatin-like PHA depolymerase	keep_now	Separate archaeal branch with direct native-PHA activity; keep isolated from bacterial HMM families.
+

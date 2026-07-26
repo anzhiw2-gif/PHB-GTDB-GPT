@@ -129,9 +129,10 @@ Repository-relative path to the stored seed FASTA file.
   `taxonomic_domain` is `Archaea`
 - non-excluded `bacteria_high_confidence` rows must use `E1` or `E2`; `E3`
   annotation-only rows are not allowed in the bacterial seed library
-- non-excluded `archaea_literature_supported` rows must use `E1` or `E2`, must
-  include at least one of `pmid`, `doi`, or `pmcid`, and must describe the
-  literature support in `literature_support_scope`
+- non-excluded `archaea_literature_supported` rows may use `E1`, `E2`, or
+  `E3`; `E1`/`E2` rows must include at least one of `pmid`, `doi`, or `pmcid`,
+  and all archaeal rows must describe the support scope in
+  `literature_support_scope`
 - `source_url` should be filled when the source provides a stable landing page
 - `doi`, `pmid`, and `pmcid` should be filled whenever a seed is anchored to a
   paper
@@ -166,5 +167,5 @@ Repository-relative path to the stored seed FASTA file.
 - reject unknown sequence formats
 - reject `Excluded` rows that do not explain why they were excluded
 - reject bacterial high-confidence rows with annotation-only `E3` evidence
-- reject archaeal literature-supported rows without a literature identifier and
-  support scope
+- reject archaeal rows that omit `literature_support_scope`; reject `E1`/`E2`
+  archaeal rows without a literature identifier

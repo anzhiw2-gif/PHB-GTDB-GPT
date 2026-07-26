@@ -21,7 +21,9 @@ P04 also keeps bacterial and archaeal seed libraries separate:
 - archaeal rows belong to `archaea_literature_supported`
 
 This separation prevents sparse archaeal evidence or automatic annotations from
-changing the bacterial high-confidence seed set.
+changing the bacterial high-confidence seed set. Archaeal rows may be
+literature-backed or annotation-supported, but they stay in the archaeal
+library and never bleed into the bacterial seed set.
 
 ## Primary Source Rules
 
@@ -61,10 +63,12 @@ tracked candidates or excluded rows when they are useful for boundary review.
 
 ### Archaeal literature-supported library
 
-Use this library for archaeal PHB/PHA depolymerase-related seeds only when a
-paper supports the sequence, gene, or experimentally tested protein. Every
-non-excluded archaeal row must include at least one of `pmid`, `doi`, or
-`pmcid`, and must fill `literature_support_scope` with the exact support type.
+Use this library for archaeal PHB/PHA depolymerase-related seeds when the
+sequence is traceable to a source accession and the support scope is explicit.
+Direct literature support is preferred for the anchor rows, but annotation-only
+archaeal E3 records may be admitted when they are the best available evidence
+for family coverage. Every non-excluded archaeal row must fill
+`literature_support_scope` with the exact support type.
 
 Acceptable archaeal support scopes include:
 
@@ -74,7 +78,8 @@ Acceptable archaeal support scopes include:
 
 Automatic names such as "PHB depolymerase family esterase", InterPro/Pfam
 membership, or NCBI/UniProt TrEMBL annotation alone are not sufficient for an
-archaeal seed row.
+E1/E2 archaeal anchor row. They can support an E3 archaeal seed row only when
+the accession, organism, and support scope are explicitly recorded.
 
 The first archaeal literature anchor is *Haloferax mediterranei* `PhaZh1` /
 `HFX_6464`, supported by PMID `25710370` and DOI `10.1128/AEM.04269-14`.

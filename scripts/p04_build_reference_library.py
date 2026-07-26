@@ -190,17 +190,17 @@ def validate_library_boundary(row: dict[str, str], path: Path, line_number: int)
         )
 
     if row["reference_library"] == "archaea_literature_supported":
-        if row["evidence_level"] not in {"E1", "E2"}:
+        if row["evidence_level"] not in {"E1", "E2", "E3"}:
             raise ValueError(
-                f"{path}:{line_number} archaea_literature_supported rows require E1 or E2 evidence"
+                f"{path}:{line_number} archaea_literature_supported rows require E1, E2, or E3 evidence"
             )
-        if not (row.get("pmid") or row.get("doi") or row.get("pmcid")):
+        if row["evidence_level"] in {"E1", "E2"} and not (row.get("pmid") or row.get("doi") or row.get("pmcid")):
             raise ValueError(
                 f"{path}:{line_number} archaea_literature_supported rows require PMID, DOI, or PMCID"
             )
         if not row.get("literature_support_scope"):
             raise ValueError(
-                f"{path}:{line_number} literature_support_scope is required for archaeal literature-supported rows"
+                f"{path}:{line_number} literature_support_scope is required for archaeal rows"
             )
 
 

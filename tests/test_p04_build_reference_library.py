@@ -206,6 +206,20 @@ class P04BuildReferenceLibraryTest(unittest.TestCase):
             self.assertEqual(rows[0]["reference_library"], "archaea_literature_supported")
             self.assertEqual(rows[0]["taxonomic_domain"], "Archaea")
 
+    def test_load_reference_manifest_accepts_archaeal_annotation_seed_without_literature(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = Path(tmp) / "manifest.tsv"
+            manifest.write_text(
+                "seed_id\treference_library\ttaxonomic_domain\tfamily_category\tseed_name\tevidence_level\tsource_database\tsource_accession\torganism\ttaxon_id\tretrieval_date\tsequence_format\tsequence_length_aa\tsequence_path\tliterature_support_scope\n"
+                "archaea-2\tarchaea_literature_supported\tArchaea\tarchaeal_patatin_like_pha_dep\tAnnot. depolymerase\tE3\tNCBI Protein\tCCQ36014.1\tNatronomonas moolapensis 8.8.11\t268739\t2026-07-26\tfaa\t323\tseeds/archaea/CCQ36014.1.faa\tNCBI Protein annotation only; no direct literature support\n",
+                encoding="utf-8",
+            )
+
+            rows = load_reference_manifest(manifest)
+
+            self.assertEqual(rows[0]["evidence_level"], "E3")
+            self.assertEqual(rows[0]["source_accession"], "CCQ36014.1")
+
     def test_load_reference_manifest_rejects_archaeal_seed_without_literature(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             manifest = Path(tmp) / "manifest.tsv"

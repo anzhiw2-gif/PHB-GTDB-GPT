@@ -20,9 +20,11 @@ P04 builds two seed libraries with different admission rules.
   experimental activity or strong functional evidence with clear limitations.
   Annotation-only `E3` rows are excluded from this library.
 - `archaea_literature_supported`: archaeal PHB/PHA depolymerase-related seeds
-  that are supported by current literature. These rows must cite a PMID, DOI,
-  or PMCID and must state what the literature supports. Automatic database
-  annotation alone is not enough.
+  that are supported by current literature or by explicit annotation-only
+  E3 records when the archaeal branch needs coverage. E1/E2 rows must cite a
+  PMID, DOI, or PMCID and must state what the literature supports.
+  Annotation-supported E3 rows must still record their support scope and
+  source accession clearly.
 
 The split is intentional. Bacterial PHB/PHA depolymerases have multiple
 literature-supported families, while archaeal candidates are sparse and should
@@ -55,10 +57,10 @@ in notes and must not replace the PHB core.
 - `Excluded`: tracked but not used as a reference seed
 
 For `bacteria_high_confidence`, use only `E1` or `E2` in non-excluded rows.
-For `archaea_literature_supported`, use only `E1` or `E2` in non-excluded rows
-and record the literature support scope explicitly. Archaeal proteins inferred
-only from InterPro, Pfam, TIGRFAM/NCBIfam, or NCBI/UniProt automatic names
-remain candidates for later review, not seed rows.
+For `archaea_literature_supported`, use `E1`, `E2`, or `E3` in non-excluded
+rows and record the support scope explicitly. E1/E2 rows remain the literature
+anchors; E3 rows are annotation-supported archaeal candidates that are kept
+separate from the bacterial library and should still be provenance-clean.
 
 ## Current Archaeal Literature Anchor
 
@@ -66,9 +68,9 @@ The initial archaeal anchor is `PhaZh1/HFX_6464` from
 *Haloferax mediterranei* ATCC 33500. The NCBI Protein accession is
 `AFK21580.1`, and the UniProtKB accession is `I3RBH0`. PMID `25710370` reports
 that a patatin-like protein associated with *H. mediterranei* PHA granules acts
-as an efficient depolymerase in native PHA degradation. This supports an
-archaeal literature-supported seed, but it should remain separate from the
-bacterial PHB/PHA depolymerase seed library.
+as an efficient depolymerase in native PHA degradation. This remains the
+archaeal literature anchor, but the same library can now also hold separate
+annotation-supported E3 rows for archaeal coverage.
 
 ## Stage Documents
 

@@ -1,0 +1,6 @@
+seed_id	family_category	source_accession	major_class	priority_status	reason
+bac-Q939Q9	phaZ7_like	Q939Q9	PhaZ7-like intracellular/extracellular refinement	deferred	Useful historical family but narrower than the review-level trunks; better postponed until more independent seed evidence exists.
+bac-Q3V6L9	phaZd_like	Q3V6L9	PhaZd-like intracellular refinement	deferred	Specific intracellular lineage that is biologically real but not needed to represent the main first-pass trunk.
+bac-Q6YNP7	rhodospirillum_periplasmic_like	Q6YNP7	Periplasmic refinement branch	deferred	Periplasmic depolymerase support exists in the literature, but this lineage is a refinement branch rather than a required main trunk.
+bac-P26495	tigr02240_aromatic_pha_related	P26495	Aromatic-PHA-related boundary branch	deferred	Boundary anchor for an aromatic/mcl-adjacent space; keep as a separate record for later, not as a main P05 trunk.
+

@@ -28,7 +28,7 @@ PHB/PHA degradation phenotype.
 - P02: complete
 - P03: complete
 - P04: complete
-- P05: next
+- P05: in progress
 
 ## Verified Outputs
 
@@ -50,7 +50,26 @@ PHB/PHA degradation phenotype.
   - `01_reference_library/reference_library.archaea.normalized.tsv`
   - `01_reference_library/reference_library_summary.tsv`
   - `01_reference_library/retrieval_logs/p04_seed_retrieval_log.tsv`
+  - `01_reference_library/retrieval_logs/p05_seed_retrieval_log.tsv`
   - curated seed FASTA files under `01_reference_library/seeds/`
+- P04 manifest summary on 2026-07-26:
+  - seed rows: `27`
+  - bacterial rows: `19`
+  - archaeal rows: `8`
+- P05 planner outputs:
+  - `04_family_profiles/manifests/p05_family_profile_plan.tsv`
+  - `04_family_profiles/manifests/p05_family_hmm_build_queue.tsv`
+  - `04_family_profiles/manifests/p05_family_anchor_set_queue.tsv`
+  - `04_family_profiles/manifests/p05_family_profile_summary.tsv`
+- P05 scaffold outputs:
+  - `04_family_profiles/manifests/p05_family_hmm_build_scaffold_queue.tsv`
+  - `04_family_profiles/manifests/p05_family_hmm_build_scaffold_summary.tsv`
+  - deterministic eligible-family seed bundles under `04_family_profiles/seed_bundles/`
+  - five HMM-ready bacterial families plus one archaeal branch
+- P05 command-manifest outputs:
+  - `04_family_profiles/manifests/p05_family_profile_command_manifest.tsv`
+  - `04_family_profiles/manifests/p05_family_profile_command_summary.tsv`
+  - `planned_not_run` command records for the six eligible families
 
 ## Key Files
 
@@ -62,6 +81,9 @@ PHB/PHA degradation phenotype.
 - `scripts/p02_compare_predictors.py`
 - `scripts/p03_predict_proteomes.py`
 - `scripts/p03_monitor_progress.py`
+- `scripts/p05_plan_family_profiles.py`
+- `scripts/p05_family_profile_commands.py`
+- `docs/P05_FAMILY_PROFILE_PLAN.md`
 
 ## Operating Rules
 
@@ -107,8 +129,10 @@ Every step and operation must have biological support.
 - For every sequence used, provide a clear source:
   accession, database, release/version, organism/taxon, retrieval date, and
   file path or manifest location.
-- Prefer literature-supported reference sequences. Record DOI, PMID, PMCID, or
-  a stable publisher/preprint URL when available.
+- Prefer literature-supported reference sequences. For archaeal coverage,
+  annotation-supported E3 rows are acceptable when the accession, organism,
+  and support scope are explicit. Record DOI, PMID, PMCID, or a stable
+  publisher/preprint URL when available.
 - For GTDB-derived sequences, record the GTDB release, assembly accession,
   protein identifier, genome path or manifest reference, and any transformation
   applied by the workflow.

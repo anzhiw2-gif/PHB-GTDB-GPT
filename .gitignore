@@ -12,6 +12,10 @@
 04_family_profiles/alignments/
 04_family_profiles/hmms/
 04_family_profiles/calibration/
+04_family_profiles/seed_bundles/
+04_family_profiles/manifests/*
+!04_family_profiles/manifests/p05_family_keep_now.tsv
+!04_family_profiles/manifests/p05_family_deferred.tsv
 05_hmmer_scan/raw_hits/
 05_hmmer_scan/filtered_hits/
 05_hmmer_scan/candidates/
