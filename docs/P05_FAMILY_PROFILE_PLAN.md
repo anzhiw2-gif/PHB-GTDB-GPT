@@ -9,15 +9,18 @@ degradation phenotype.
 
 ## Current Snapshot
 
-The current normalized P04 manifest has 31 seed rows across 10 families after
-the current seed-extension pass, including a fresh cross-genus bacterial
-expansion, but the default P05 planner now reads
+The current normalized P04 manifest has 42 seed rows across 10 families after
+the current seed-extension pass, including fresh extracellular scl type I / type
+II reinforcement and a five-sequence intracellular mcl-PHA reinforcement, but
+the default P05 planner now reads
 [`04_family_profiles/manifests/p05_family_keep_now.tsv`](../04_family_profiles/manifests/p05_family_keep_now.tsv)
 and keeps only the 6 review-level main branches active.
 
 Under the current rule, five active bacterial families and the archaeal branch
 now reach the threshold of three independent qualifying source accessions
-needed to justify a custom HMM.
+needed to justify a custom HMM. The active six-family subset contains 38
+qualifying seed rows after the intracellular mcl-PHA family was raised from 3
+to 8 independent UniProtKB accessions.
 
 For the keep/defer split and its literature basis, see
 [P05 family classification priorities](P05_FAMILY_CLASSIFICATION_PRIORITIES.md).

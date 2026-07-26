@@ -26,16 +26,23 @@ PHB/PHA degradation phenotype.
 
 - P01: complete
 - P02: complete
-- P03: complete
-- P04: complete
-- P05: next
+- P03: translation-fix rerun in progress on T141
+- P04: complete; P05 seed reinforcement recorded
+- P05: in progress; six active family HMM artifacts exist as ignored generated outputs
+- P06: planner/parser ready; full scan pending repaired P03 proteomes
 
 ## Verified Outputs
 
 - P01 raw GTDB copy and reconciliation are complete.
 - P02 benchmark locked the production predictor to `Pyrodigal GeneFinder(meta=True)`.
-- P03 full proteome prediction is complete.
-- P03 outputs:
+- The original P03 full-proteome run reached the expected file count, but the
+  FAA protein records were later found to contain empty translations. Do not
+  use the old FAA files for HMMER scanning.
+- A P03 translation-fix rerun is active on T141 as of 2026-07-26. The fix uses
+  `gene.translate(include_stop=False)` when Pyrodigal exposes translation by
+  method, rejects empty protein translations, and is monitored by
+  `scripts/p03_monitor_translation_fix.py`.
+- P03 machine-local output paths:
   - `03_gtdb_proteomes/faa/`
   - `03_gtdb_proteomes/gff/`
   - `03_gtdb_proteomes/qc/p03_prediction_qc.tsv`
@@ -43,6 +50,8 @@ PHB/PHA degradation phenotype.
 - P03 run summary on T141:
   - genomes predicted: `199,923`
   - predicted genes: `615,969,593`
+  - current acceptance status: pending completion of the translation-fix rerun
+    and regenerated QC/manifest checks
 - P04 outputs:
   - `01_reference_library/manifests/reference_library.seed_manifest.tsv`
   - `01_reference_library/reference_library.normalized.tsv`
@@ -50,11 +59,42 @@ PHB/PHA degradation phenotype.
   - `01_reference_library/reference_library.archaea.normalized.tsv`
   - `01_reference_library/reference_library_summary.tsv`
   - `01_reference_library/retrieval_logs/p04_seed_retrieval_log.tsv`
+  - `01_reference_library/retrieval_logs/p05_seed_retrieval_log.tsv`
   - curated seed FASTA files under `01_reference_library/seeds/`
+- P04 manifest summary on 2026-07-26:
+  - seed rows: `42`
+  - bacterial rows: `34`
+  - archaeal rows: `8`
+  - evidence levels: `E1=20`, `E2=15`, `E3=7`, `Excluded=0`
+- P05 planner outputs:
+  - `04_family_profiles/manifests/p05_family_profile_plan.tsv`
+  - `04_family_profiles/manifests/p05_family_hmm_build_queue.tsv`
+  - `04_family_profiles/manifests/p05_family_anchor_set_queue.tsv`
+  - `04_family_profiles/manifests/p05_family_profile_summary.tsv`
+- P05 scaffold outputs:
+  - `04_family_profiles/manifests/p05_family_hmm_build_scaffold_queue.tsv`
+  - `04_family_profiles/manifests/p05_family_hmm_build_scaffold_summary.tsv`
+  - deterministic eligible-family seed bundles under `04_family_profiles/seed_bundles/`
+  - five HMM-ready bacterial families plus one archaeal branch
+- P05 command-manifest outputs:
+  - `04_family_profiles/manifests/p05_family_profile_command_manifest.tsv`
+  - `04_family_profiles/manifests/p05_family_profile_command_summary.tsv`
+  - `planned_not_run` command records for the six eligible families
+- P05 generated outputs are intentionally ignored by Git:
+  - `04_family_profiles/seed_bundles/`
+  - `04_family_profiles/alignments/`
+  - `04_family_profiles/hmms/`
+- P06 tracked scaffold:
+  - `scripts/p06_scan_family_profiles.py`
+  - `tests/test_p06_scan_family_profiles.py`
+  - `05_hmmer_scan/README.md`
+- P06 raw HMMER outputs and candidate tables stay ignored until compact
+  summaries are accepted.
 
 ## Key Files
 
 - `docs/DATA_PROVENANCE.md`
+- `docs/HANDOFF_2026-07-26_P05_P06_P03_TRANSLATION_FIX.md`
 - `docs/P02_BENCHMARK_DECISION.md`
 - `docs/PREDICTION_POLICY.md`
 - `scripts/p01_audit_gtdb.py`
@@ -62,6 +102,11 @@ PHB/PHA degradation phenotype.
 - `scripts/p02_compare_predictors.py`
 - `scripts/p03_predict_proteomes.py`
 - `scripts/p03_monitor_progress.py`
+- `scripts/p03_monitor_translation_fix.py`
+- `scripts/p05_plan_family_profiles.py`
+- `scripts/p05_family_profile_commands.py`
+- `scripts/p06_scan_family_profiles.py`
+- `docs/P05_FAMILY_PROFILE_PLAN.md`
 
 ## Operating Rules
 
@@ -107,8 +152,10 @@ Every step and operation must have biological support.
 - For every sequence used, provide a clear source:
   accession, database, release/version, organism/taxon, retrieval date, and
   file path or manifest location.
-- Prefer literature-supported reference sequences. Record DOI, PMID, PMCID, or
-  a stable publisher/preprint URL when available.
+- Prefer literature-supported reference sequences. For archaeal coverage,
+  annotation-supported E3 rows are acceptable when the accession, organism,
+  and support scope are explicit. Record DOI, PMID, PMCID, or a stable
+  publisher/preprint URL when available.
 - For GTDB-derived sequences, record the GTDB release, assembly accession,
   protein identifier, genome path or manifest reference, and any transformation
   applied by the workflow.
@@ -187,6 +234,7 @@ On T141:
 ```bash
 cd /home/data/haoyu/PHB-GTDB-GPT
 /home/data/haoyu/miniconda3/envs/phb_gtdb/bin/python scripts/p03_monitor_progress.py
+/home/data/haoyu/miniconda3/envs/phb_gtdb/bin/python scripts/p03_monitor_translation_fix.py --once
 ```
 
 Update this file whenever the stage status or the project-wide operating rules

@@ -7,6 +7,7 @@ from pathlib import Path
 import unittest
 
 from scripts.p03_predict_proteomes import (
+    _gene_translation,
     discover_genome_files,
     infer_accession_from_genome_path,
     load_prediction_policy,
@@ -18,6 +19,13 @@ from scripts.p03_predict_proteomes import (
 
 
 class P03PredictProteomesTest(unittest.TestCase):
+    def test_gene_translation_uses_pyrodigal_translate_method(self) -> None:
+        class PyrodigalLikeGene:
+            def translate(self, include_stop: bool = True) -> str:
+                return "MKK*" if include_stop else "MKK"
+
+        self.assertEqual(_gene_translation(PyrodigalLikeGene()), "MKK")
+
     def test_infer_accession_uses_real_gtdb_filename(self) -> None:
         path = Path("00_raw_gtdb_r232/genomes/GCF/033/239/625/GCF_033239625.1_genomic.fna.gz")
 

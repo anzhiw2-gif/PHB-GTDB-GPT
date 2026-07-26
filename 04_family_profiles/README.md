@@ -32,7 +32,7 @@ The build scaffold adds:
 The scaffold queue records `seed_bundle_path` and `bundled_sequence_count`.
 Bundle headers are stable `seed_id|source_accession` identifiers and records
 are written in deterministic seed order. These FASTA files are inputs for
-future MAFFT/HMMER work only; the scaffold does not run those tools.
+MAFFT/HMMER work only; the scaffold does not run those tools.
 
 If the saved P05 plan is missing, the scaffold first materializes it from the
 current manifest and keep-now family classification, then writes the build
@@ -56,9 +56,14 @@ so the manifest remains portable between Windows and POSIX hosts.
 
 When an eligible family is present, the command-manifest step also prepares the
 ignored `04_family_profiles/alignments/` and `04_family_profiles/hmms/`
-directories for the future MAFFT and HMMER outputs.
+directories for MAFFT and HMMER outputs. Six generated HMM files are present in
+the current workspace, one per active family, but these derived outputs are not
+tracked by Git.
 
-As of 2026-07-26, the normalized P04 reference library contains 31 seed rows
-across 10 families after the latest cross-genus bacterial expansion. P05 keeps
-6 active main branches, and all 6 now meet the three-seed HMM threshold, so
-the real-world build scaffold queue now contains 6 eligible families.
+As of 2026-07-26, the normalized P04 reference library contains 42 seed rows
+across 10 families after the latest extracellular scl type I / type II
+reinforcement and intracellular mcl-PHA reinforcement. P05 keeps 6 active main
+branches, and all 6 now meet the three-seed HMM threshold, so the real-world
+build scaffold queue now contains 6 eligible families. The active six-family
+subset contains 38 qualifying seed rows; `intracellular_mcl_pha_dep` now has 8
+independent UniProtKB seed accessions.

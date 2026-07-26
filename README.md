@@ -30,6 +30,7 @@
 - [docs/DATA_PROVENANCE.md](docs/DATA_PROVENANCE.md) 记录 P01 的审计、复制和 manifest 轨迹
 - [docs/P02_BENCHMARK_DECISION.md](docs/P02_BENCHMARK_DECISION.md) 记录 P02 的 benchmark 结果和预测器锁定
 - [docs/PREDICTION_POLICY.md](docs/PREDICTION_POLICY.md) 记录 P03 使用的生产预测策略
+- [docs/HANDOFF_2026-07-26_P05_P06_P03_TRANSLATION_FIX.md](docs/HANDOFF_2026-07-26_P05_P06_P03_TRANSLATION_FIX.md) 记录 P05/P06 当前状态和 P03 翻译修复重跑
 
 主要脚本在 `scripts/`：
 
@@ -38,6 +39,8 @@
 - `p02_compare_predictors.py`
 - `p03_predict_proteomes.py`
 - `p03_monitor_progress.py`
+- `p03_monitor_translation_fix.py`
+- `p06_scan_family_profiles.py`
 
 ## 运行环境
 
@@ -80,6 +83,15 @@ cd /home/data/haoyu/PHB-GTDB-GPT
 cd /home/data/haoyu/PHB-GTDB-GPT
 /home/data/haoyu/miniconda3/envs/phb_gtdb/bin/python scripts/p03_monitor_progress.py --once --no-clear
 ```
+
+查看当前 P03 翻译修复重跑：
+
+```bash
+cd /home/data/haoyu/PHB-GTDB-GPT
+/home/data/haoyu/miniconda3/envs/phb_gtdb/bin/python scripts/p03_monitor_translation_fix.py --once
+```
+
+当前护栏：P06 全量 HMMER 扫描要等 P03 翻译修复完成并通过 QC 后再启动。
 
 ## 运行前提
 

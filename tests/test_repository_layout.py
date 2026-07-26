@@ -45,6 +45,26 @@ class RepositoryLayoutTest(unittest.TestCase):
         )
         self.assertEqual(ignored.returncode, 0, ignored.stderr)
 
+    def test_generated_p06_outputs_are_ignored(self) -> None:
+        paths = [
+            "05_hmmer_scan/p06_hmmer_scan_manifest.tsv",
+            "05_hmmer_scan/p06_hmmer_scan_summary.tsv",
+            "05_hmmer_scan/p06_hmmer_candidates.tsv",
+            "05_hmmer_scan/p06_hmmer_candidate_summary.tsv",
+            "05_hmmer_scan/raw_domtblout/family/shard.domtblout",
+            "05_hmmer_scan/hmmer_logs/family/shard.txt",
+        ]
+        for path in paths:
+            with self.subTest(path=path):
+                ignored = subprocess.run(
+                    ["git", "check-ignore", path],
+                    cwd=ROOT,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(ignored.returncode, 0, ignored.stderr)
+
     def test_repository_validator_succeeds(self) -> None:
         result = subprocess.run(
             [sys.executable, "scripts/validate_repository.py"],

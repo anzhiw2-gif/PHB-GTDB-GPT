@@ -275,6 +275,11 @@ def run_pyrodigal_prediction(genome_path: Path, accession: str, mode: str) -> di
             end = _gene_int(gene, ("end", "stop"))
             strand = _gene_strand(gene)
             translation = _gene_translation(gene)
+            if not translation:
+                raise ValueError(
+                    f"empty protein translation for {accession}:{contig_id}:{orf_index} "
+                    f"({begin}-{end}, strand {strand})"
+                )
             partial_begin = _gene_bool(gene, ("partial_begin", "start_partial"))
             partial_end = _gene_bool(gene, ("partial_end", "end_partial"))
 
@@ -499,6 +504,12 @@ def _gene_translation(gene: object) -> str:
         value = getattr(gene, attr, None)
         if value is not None:
             return str(value)
+    translate = getattr(gene, "translate", None)
+    if callable(translate):
+        try:
+            return str(translate(include_stop=False))
+        except TypeError:  # pragma: no cover - compatibility with older pyrodigal
+            return str(translate()).rstrip("*")
     return ""
 
 
