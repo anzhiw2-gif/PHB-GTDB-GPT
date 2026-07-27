@@ -274,6 +274,152 @@ class P05HmmCalibrationTest(unittest.TestCase):
             self.assertNotIn("|A1\n", first_bundle.read_text(encoding="ascii"))
             self.assertIn(">positive|family_a|A1", Path(rows[0]["positive_fasta_path"]).read_text(encoding="ascii"))
 
+    def test_parse_leave_one_out_results_reports_union_coverage_and_missing_positive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hit_domtblout = root / "hit.domtblout"
+            hit_domtblout.write_text(
+                "# domtblout fixture\n"
+                "positive|family_a|A1 - 120 family_a - 100 1e-20 42.0 0.0 1 2 1e-20 1e-20 42.0 0.0 10 50 1 41 1 41 0.99 fixture\n"
+                "positive|family_a|A1 - 120 family_a - 100 1e-20 42.0 0.0 2 2 1e-20 1e-20 10.0 0.0 45 80 42 77 42 77 0.99 fixture\n",
+                encoding="ascii",
+            )
+            missing_domtblout = root / "missing.domtblout"
+            missing_domtblout.write_text("# no reportable hit\n", encoding="ascii")
+            manifest = root / "leave_one_out.tsv"
+            self._write_tsv(
+                manifest,
+                list(calibration.LEAVE_ONE_OUT_COMMAND_FIELDNAMES),
+                [
+                    {
+                        "family_category": "family_a",
+                        "holdout_accession": "A1",
+                        "domtblout_path": hit_domtblout.as_posix(),
+                    },
+                    {
+                        "family_category": "family_b",
+                        "holdout_accession": "B1",
+                        "domtblout_path": missing_domtblout.as_posix(),
+                    },
+                ],
+            )
+
+            rows = calibration.parse_leave_one_out_results(manifest)
+
+            self.assertEqual(rows[0]["positive_hit_status"], "recovered")
+            self.assertEqual(rows[0]["best_full_score"], "42.0")
+            self.assertEqual(rows[0]["hmm_coverage"], "0.710000")
+            self.assertEqual(rows[0]["domain_count"], "2")
+            self.assertEqual(rows[1]["positive_hit_status"], "missing")
+            self.assertEqual(rows[1]["best_full_score"], "")
+            self.assertEqual(rows[1]["hmm_coverage"], "")
+
+    def test_derive_calibration_decisions_requires_positive_recovery_and_hard_challenge_separation(self) -> None:
+        decisions = calibration.derive_calibration_decisions(
+            [
+                {"family_category": "family_a", "positive_hit_status": "recovered", "best_full_score": "42.0", "hmm_coverage": "0.700000"},
+                {"family_category": "family_a", "positive_hit_status": "recovered", "best_full_score": "55.0", "hmm_coverage": "0.900000"},
+                {"family_category": "family_b", "positive_hit_status": "missing", "best_full_score": "", "hmm_coverage": ""},
+            ],
+            [
+                {"family_category": "family_a", "control_role": "cross_family_challenge", "hit_status": "hit", "best_full_score": "40.0", "hmm_coverage": "0.720000"},
+                {"family_category": "family_a", "control_role": "cross_family_challenge", "hit_status": "hit", "best_full_score": "43.0", "hmm_coverage": "0.600000"},
+                {"family_category": "family_b", "control_role": "cross_family_challenge", "hit_status": "no_hit", "best_full_score": "", "hmm_coverage": ""},
+            ],
+        )
+
+        by_family = {row["family_category"]: row for row in decisions}
+        self.assertEqual(by_family["family_a"]["proposed_score_threshold"], "42.0")
+        self.assertEqual(by_family["family_a"]["proposed_hmm_coverage_threshold"], "0.700000")
+        self.assertEqual(by_family["family_a"]["hard_challenges_passing_proposed_rule"], "0")
+        self.assertEqual(by_family["family_a"]["recommendation"], "eligible_for_human_review")
+        self.assertEqual(by_family["family_b"]["positive_recovery_missing"], "1")
+        self.assertEqual(by_family["family_b"]["recommendation"], "blocked_positive_recovery_failed")
+
+    def test_derive_calibration_decisions_rejects_family_without_hard_challenge(self) -> None:
+        with self.assertRaisesRegex(ValueError, "hard cross-family challenge"):
+            calibration.derive_calibration_decisions(
+                [
+                    {
+                        "family_category": "family_a",
+                        "positive_hit_status": "recovered",
+                        "best_full_score": "42.0",
+                        "hmm_coverage": "0.700000",
+                    }
+                ],
+                [],
+            )
+
+    def test_parse_control_smoke_results_retains_unhit_controls(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            domtblout = root / "family_a.controls.domtblout"
+            hard_control_id = "family_a|cross_family_challenge|family_b|B1"
+            boundary_control_id = "family_a|boundary_observation|family_a|A2"
+            domtblout.write_text(
+                "# domtblout fixture\n"
+                f"{hard_control_id} - 120 family_a - 100 1e-20 42.0 0.0 1 1 1e-20 1e-20 42.0 0.0 10 60 1 51 1 51 0.99 fixture\n",
+                encoding="ascii",
+            )
+            panel = root / "panel.tsv"
+            self._write_tsv(
+                panel,
+                list(calibration.CONTROL_PANEL_FIELDNAMES),
+                [
+                    {"family_category": "family_a", "control_id": hard_control_id, "control_role": "cross_family_challenge"},
+                    {"family_category": "family_a", "control_id": boundary_control_id, "control_role": "boundary_observation"},
+                ],
+            )
+            manifest = root / "control_commands.tsv"
+            self._write_tsv(
+                manifest,
+                list(calibration.CALIBRATION_COMMAND_FIELDNAMES),
+                [{"family_category": "family_a", "domtblout_path": domtblout.as_posix()}],
+            )
+
+            rows = calibration.parse_control_smoke_results(panel, manifest)
+
+            by_id = {row["control_id"]: row for row in rows}
+            self.assertEqual(by_id[hard_control_id]["hit_status"], "hit")
+            self.assertEqual(by_id[hard_control_id]["best_full_score"], "42.0")
+            self.assertEqual(by_id[hard_control_id]["hmm_coverage"], "0.510000")
+            self.assertEqual(by_id[boundary_control_id]["hit_status"], "no_hit")
+
+    def test_write_calibration_result_tables_writes_detailed_and_decision_manifests(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            outputs = calibration.write_calibration_result_tables(
+                root,
+                [
+                    {
+                        "family_category": "family_a",
+                        "holdout_accession": "A1",
+                        "domtblout_path": "ignored/raw.domtblout",
+                        "positive_hit_status": "recovered",
+                        "best_full_score": "42.0",
+                        "hmm_coverage": "0.700000",
+                        "domain_count": "1",
+                    }
+                ],
+                [
+                    {
+                        "family_category": "family_a",
+                        "control_id": "family_a|cross_family_challenge|family_b|B1",
+                        "control_role": "cross_family_challenge",
+                        "hit_status": "no_hit",
+                        "best_full_score": "",
+                        "hmm_coverage": "",
+                        "domain_count": "0",
+                    }
+                ],
+            )
+
+            self.assertTrue(outputs["leave_one_out"].is_file())
+            self.assertTrue(outputs["control_smoke"].is_file())
+            with outputs["decisions"].open("r", encoding="utf-8", newline="") as handle:
+                rows = list(csv.DictReader(handle, delimiter="\t"))
+            self.assertEqual(rows[0]["recommendation"], "eligible_for_human_review")
+
 
 if __name__ == "__main__":
     unittest.main()

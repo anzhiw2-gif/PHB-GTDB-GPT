@@ -71,9 +71,13 @@ This creates one checksum-verified control FASTA and one deterministic
 the ignored `04_family_profiles/calibration/` directory. The initial commands
 are a control-panel smoke check; they do not themselves set a P06 threshold.
 
-The next calibration step will use leave-one-out seed models to define
-positive-score/coverage bounds, then require separation from every
-`cross_family_challenge`. A failed or incomplete result cannot change
+Leave-one-out seed models and the full-model control smoke have now been
+parsed into compact tracked results:
+[`p05_hmm_leave_one_out_positive_results.tsv`](../04_family_profiles/manifests/p05_hmm_leave_one_out_positive_results.tsv),
+[`p05_hmm_control_smoke_results.tsv`](../04_family_profiles/manifests/p05_hmm_control_smoke_results.tsv),
+and [`p05_hmm_calibration_decision_summary.tsv`](../04_family_profiles/manifests/p05_hmm_calibration_decision_summary.tsv).
+Three models are eligible only for human review; the other three are blocked
+by positive-recovery failure or cross-family overlap. No result changes
 `approved_for_p06=no` or `scan_permission=blocked`.
 
 ## Family Decisions

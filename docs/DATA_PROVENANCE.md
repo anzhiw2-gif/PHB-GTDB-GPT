@@ -93,3 +93,10 @@ It distinguishes hard cross-family sequence challenges from report-only
 same-family boundary observations, with sequence SHA256 and source provenance
 for every record. See `docs/P05_HMM_CALIBRATION_PROTOCOL.md`; raw calibration
 FASTA and HMMER outputs remain machine-local and ignored.
+
+The P05 leave-one-out and full-model-control calculations are published as
+compact TSVs under `04_family_profiles/manifests/`: held-out positive results,
+control-smoke observations, and family recommendations. These tables retain
+accession-level sequence evidence and threshold provenance while excluding raw
+HMMER output. They do not establish PHB/PHA degradation phenotypes for GTDB
+homologs and do not approve a P06 scan.

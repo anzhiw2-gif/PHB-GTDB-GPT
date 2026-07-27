@@ -20,6 +20,9 @@ CALIBRATION_COMMAND_MANIFEST_FILENAME = "p05_hmm_calibration_command_manifest.ts
 CALIBRATION_COMMAND_SUMMARY_FILENAME = "p05_hmm_calibration_command_summary.tsv"
 LEAVE_ONE_OUT_COMMAND_MANIFEST_FILENAME = "p05_hmm_leave_one_out_command_manifest.tsv"
 LEAVE_ONE_OUT_COMMAND_SUMMARY_FILENAME = "p05_hmm_leave_one_out_command_summary.tsv"
+LEAVE_ONE_OUT_RESULT_FILENAME = "p05_hmm_leave_one_out_positive_results.tsv"
+CONTROL_SMOKE_RESULT_FILENAME = "p05_hmm_control_smoke_results.tsv"
+CALIBRATION_DECISION_FILENAME = "p05_hmm_calibration_decision_summary.tsv"
 REFERENCE_REQUIRED_FIELDS = (
     "family_category",
     "source_accession",
@@ -489,6 +492,41 @@ LEAVE_ONE_OUT_COMMAND_FIELDNAMES = (
     "command_status",
     "notes",
 )
+LEAVE_ONE_OUT_RESULT_FIELDNAMES = (
+    "family_category",
+    "holdout_accession",
+    "domtblout_path",
+    "positive_hit_status",
+    "best_full_score",
+    "hmm_coverage",
+    "domain_count",
+)
+CALIBRATION_DECISION_FIELDNAMES = (
+    "family_category",
+    "leave_one_out_variants",
+    "positive_recovered",
+    "positive_recovery_missing",
+    "minimum_positive_full_score",
+    "minimum_positive_hmm_coverage",
+    "proposed_score_threshold",
+    "proposed_hmm_coverage_threshold",
+    "hard_challenge_count",
+    "hard_challenge_hits",
+    "hard_challenges_passing_proposed_rule",
+    "boundary_observation_count",
+    "boundary_observation_hits",
+    "recommendation",
+    "notes",
+)
+CONTROL_SMOKE_RESULT_FIELDNAMES = (
+    "family_category",
+    "control_id",
+    "control_role",
+    "hit_status",
+    "best_full_score",
+    "hmm_coverage",
+    "domain_count",
+)
 
 
 def _load_seed_records_for_leave_one_out(path: Path, models: dict[str, dict[str, str]]) -> dict[str, list[dict[str, str]]]:
@@ -617,6 +655,294 @@ def build_leave_one_out_command_manifest(
         SUMMARY_FIELDNAMES,
     )
     return {"manifest": manifest_path, "summary": summary_path}
+
+
+def _hmm_coverage(intervals: list[tuple[int, int]], hmm_length: int) -> float:
+    """Return the union HMM-coordinate coverage for a reported target."""
+
+    covered = 0
+    previous_end = -1
+    for start, end in sorted(intervals):
+        if start < 1 or end < start or end > hmm_length:
+            raise ValueError(f"Invalid HMM interval {start}-{end} for HMM length {hmm_length}")
+        if start > previous_end:
+            covered += end - start + 1
+            previous_end = end
+        elif end > previous_end:
+            covered += end - previous_end
+            previous_end = end
+    return covered / hmm_length
+
+
+def parse_leave_one_out_results(command_manifest: Path) -> list[dict[str, str]]:
+    """Parse one held-out-positive HMMER result per checksum-locked variant.
+
+    Each variant searches a single held-out FASTA record. A missing domtblout
+    data line is therefore retained as an explicit failed positive recovery,
+    rather than being silently omitted from calibration evidence.
+    """
+
+    manifest_rows = _load_tsv(
+        command_manifest,
+        ("family_category", "holdout_accession", "domtblout_path"),
+    )
+    results: list[dict[str, str]] = []
+    seen_variants: set[tuple[str, str]] = set()
+    for line_number, row in enumerate(manifest_rows, start=2):
+        family = row["family_category"]
+        accession = row["holdout_accession"]
+        domtblout_path = Path(row["domtblout_path"])
+        variant = (family, accession)
+        if not all(variant):
+            raise ValueError(f"{command_manifest}:{line_number} has an empty leave-one-out identity")
+        if variant in seen_variants:
+            raise ValueError(f"{command_manifest}:{line_number} duplicates leave-one-out variant {variant!r}")
+        seen_variants.add(variant)
+        if not domtblout_path.is_file():
+            raise FileNotFoundError(f"{command_manifest}:{line_number} is missing domtblout: {domtblout_path}")
+
+        expected_target = f"positive|{family}|{accession}"
+        full_scores: list[float] = []
+        intervals: list[tuple[int, int]] = []
+        hmm_lengths: set[int] = set()
+        for raw_line in domtblout_path.read_text(encoding="ascii").splitlines():
+            if not raw_line or raw_line.startswith("#"):
+                continue
+            fields = raw_line.split()
+            if len(fields) < 22:
+                raise ValueError(f"{domtblout_path} has a malformed HMMER domtblout row")
+            if fields[0] != expected_target:
+                raise ValueError(
+                    f"{domtblout_path} reports unexpected target {fields[0]!r}; expected {expected_target!r}"
+                )
+            try:
+                hmm_length = int(fields[5])
+                full_score = float(fields[7])
+                hmm_from = int(fields[15])
+                hmm_to = int(fields[16])
+            except ValueError as error:
+                raise ValueError(f"{domtblout_path} has non-numeric HMMER fields") from error
+            if hmm_length < 1:
+                raise ValueError(f"{domtblout_path} has a nonpositive HMM length")
+            hmm_lengths.add(hmm_length)
+            full_scores.append(full_score)
+            intervals.append((hmm_from, hmm_to))
+
+        result = {
+            "family_category": family,
+            "holdout_accession": accession,
+            "domtblout_path": domtblout_path.as_posix(),
+            "positive_hit_status": "missing",
+            "best_full_score": "",
+            "hmm_coverage": "",
+            "domain_count": "0",
+        }
+        if full_scores:
+            if len(hmm_lengths) != 1:
+                raise ValueError(f"{domtblout_path} reports inconsistent HMM lengths for one held-out positive")
+            result.update(
+                {
+                    "positive_hit_status": "recovered",
+                    "best_full_score": f"{max(full_scores):.1f}",
+                    "hmm_coverage": f"{_hmm_coverage(intervals, hmm_lengths.pop()):.6f}",
+                    "domain_count": str(len(full_scores)),
+                }
+            )
+        results.append(result)
+    return results
+
+
+def derive_calibration_decisions(
+    leave_one_out_results: list[dict[str, str]],
+    control_results: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    """Derive conservative per-family recommendations from locked evidence.
+
+    A proposed rule is the strictest score-and-coverage conjunction that still
+    retains every leave-one-out positive. It is only an auditable candidate
+    for human review and never changes a P06 approval field.
+    """
+
+    families = sorted({row["family_category"] for row in leave_one_out_results})
+    decisions: list[dict[str, str]] = []
+    for family in families:
+        positives = [row for row in leave_one_out_results if row["family_category"] == family]
+        recovered = [row for row in positives if row["positive_hit_status"] == "recovered"]
+        missing_count = len(positives) - len(recovered)
+        controls = [row for row in control_results if row["family_category"] == family]
+        hard_controls = [row for row in controls if row["control_role"] == "cross_family_challenge"]
+        boundary_controls = [row for row in controls if row["control_role"] == "boundary_observation"]
+        if not hard_controls:
+            raise ValueError(f"Calibration evidence lacks a hard cross-family challenge for {family}")
+        hard_hits = [row for row in hard_controls if row["hit_status"] == "hit"]
+        boundary_hits = [row for row in boundary_controls if row["hit_status"] == "hit"]
+        decision = {
+            "family_category": family,
+            "leave_one_out_variants": str(len(positives)),
+            "positive_recovered": str(len(recovered)),
+            "positive_recovery_missing": str(missing_count),
+            "minimum_positive_full_score": "",
+            "minimum_positive_hmm_coverage": "",
+            "proposed_score_threshold": "",
+            "proposed_hmm_coverage_threshold": "",
+            "hard_challenge_count": str(len(hard_controls)),
+            "hard_challenge_hits": str(len(hard_hits)),
+            "hard_challenges_passing_proposed_rule": "",
+            "boundary_observation_count": str(len(boundary_controls)),
+            "boundary_observation_hits": str(len(boundary_hits)),
+            "recommendation": "blocked_positive_recovery_failed",
+            "notes": "At least one held-out positive has no reportable HMMER domtblout match.",
+        }
+        if missing_count:
+            decisions.append(decision)
+            continue
+
+        minimum_score = min(float(row["best_full_score"]) for row in recovered)
+        minimum_coverage = min(float(row["hmm_coverage"]) for row in recovered)
+        hard_passing = [
+            row
+            for row in hard_hits
+            if float(row["best_full_score"]) >= minimum_score and float(row["hmm_coverage"]) >= minimum_coverage
+        ]
+        decision.update(
+            {
+                "minimum_positive_full_score": f"{minimum_score:.1f}",
+                "minimum_positive_hmm_coverage": f"{minimum_coverage:.6f}",
+                "proposed_score_threshold": f"{minimum_score:.1f}",
+                "proposed_hmm_coverage_threshold": f"{minimum_coverage:.6f}",
+                "hard_challenges_passing_proposed_rule": str(len(hard_passing)),
+            }
+        )
+        if hard_passing:
+            decision.update(
+                {
+                    "recommendation": "blocked_cross_family_overlap",
+                    "notes": (
+                        "One or more cross-family hard challenges pass the strictest score-and-coverage rule "
+                        "that retains every leave-one-out positive."
+                    ),
+                }
+            )
+        else:
+            decision.update(
+                {
+                    "recommendation": "eligible_for_human_review",
+                    "notes": (
+                        "All leave-one-out positives are retained and no hard cross-family challenge passes the "
+                        "proposed rule; P06 remains blocked pending human review and registry update."
+                    ),
+                }
+            )
+        decisions.append(decision)
+    return decisions
+
+
+def parse_control_smoke_results(
+    control_panel: Path,
+    command_manifest: Path,
+) -> list[dict[str, str]]:
+    """Parse full-model controls while retaining no-hit panel records."""
+
+    panel_rows = _load_tsv(control_panel, ("family_category", "control_id", "control_role"))
+    command_rows = _load_tsv(command_manifest, ("family_category", "domtblout_path"))
+    commands_by_family: dict[str, dict[str, str]] = {}
+    for line_number, row in enumerate(command_rows, start=2):
+        family = row["family_category"]
+        if not family or family in commands_by_family:
+            raise ValueError(f"{command_manifest}:{line_number} has an empty or duplicate model family")
+        commands_by_family[family] = row
+
+    panels_by_family: dict[str, list[dict[str, str]]] = {}
+    for line_number, row in enumerate(panel_rows, start=2):
+        family = row["family_category"]
+        control_id = row["control_id"]
+        if not family or not control_id:
+            raise ValueError(f"{control_panel}:{line_number} has an empty control identity")
+        if family not in commands_by_family:
+            raise ValueError(f"{control_panel}:{line_number} has no matching HMMER command for {family}")
+        panels_by_family.setdefault(family, []).append(row)
+
+    results: list[dict[str, str]] = []
+    for family, family_panel_rows in sorted(panels_by_family.items()):
+        domtblout_path = Path(commands_by_family[family]["domtblout_path"])
+        if not domtblout_path.is_file():
+            raise FileNotFoundError(f"{command_manifest} is missing control domtblout for {family}: {domtblout_path}")
+        valid_ids = {row["control_id"] for row in family_panel_rows}
+        hits: dict[str, dict[str, object]] = {}
+        for raw_line in domtblout_path.read_text(encoding="ascii").splitlines():
+            if not raw_line or raw_line.startswith("#"):
+                continue
+            fields = raw_line.split()
+            if len(fields) < 22:
+                raise ValueError(f"{domtblout_path} has a malformed HMMER domtblout row")
+            control_id = fields[0]
+            if control_id not in valid_ids:
+                raise ValueError(f"{domtblout_path} reports target absent from the control panel: {control_id!r}")
+            try:
+                hmm_length = int(fields[5])
+                full_score = float(fields[7])
+                hmm_from = int(fields[15])
+                hmm_to = int(fields[16])
+            except ValueError as error:
+                raise ValueError(f"{domtblout_path} has non-numeric HMMER fields") from error
+            record = hits.setdefault(control_id, {"scores": [], "intervals": [], "hmm_lengths": set()})
+            record["scores"].append(full_score)
+            record["intervals"].append((hmm_from, hmm_to))
+            record["hmm_lengths"].add(hmm_length)
+
+        for panel_row in family_panel_rows:
+            control_id = panel_row["control_id"]
+            result = {
+                "family_category": family,
+                "control_id": control_id,
+                "control_role": panel_row["control_role"],
+                "hit_status": "no_hit",
+                "best_full_score": "",
+                "hmm_coverage": "",
+                "domain_count": "0",
+            }
+            if control_id in hits:
+                record = hits[control_id]
+                hmm_lengths = record["hmm_lengths"]
+                if len(hmm_lengths) != 1:
+                    raise ValueError(f"{domtblout_path} reports inconsistent HMM lengths for {control_id}")
+                result.update(
+                    {
+                        "hit_status": "hit",
+                        "best_full_score": f"{max(record['scores']):.1f}",
+                        "hmm_coverage": f"{_hmm_coverage(record['intervals'], next(iter(hmm_lengths))):.6f}",
+                        "domain_count": str(len(record["scores"])),
+                    }
+                )
+            results.append(result)
+    return results
+
+
+def write_calibration_result_tables(
+    manifest_dir: Path,
+    leave_one_out_results: list[dict[str, str]],
+    control_results: list[dict[str, str]],
+) -> dict[str, Path]:
+    """Write compact, Git-trackable calibration evidence and recommendations."""
+
+    decisions = derive_calibration_decisions(leave_one_out_results, control_results)
+    return {
+        "leave_one_out": _write_tsv(
+            manifest_dir / LEAVE_ONE_OUT_RESULT_FILENAME,
+            leave_one_out_results,
+            LEAVE_ONE_OUT_RESULT_FIELDNAMES,
+        ),
+        "control_smoke": _write_tsv(
+            manifest_dir / CONTROL_SMOKE_RESULT_FILENAME,
+            control_results,
+            CONTROL_SMOKE_RESULT_FIELDNAMES,
+        ),
+        "decisions": _write_tsv(
+            manifest_dir / CALIBRATION_DECISION_FILENAME,
+            decisions,
+            CALIBRATION_DECISION_FIELDNAMES,
+        ),
+    }
 
 
 def build_arg_parser() -> argparse.ArgumentParser:

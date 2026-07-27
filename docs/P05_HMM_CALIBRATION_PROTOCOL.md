@@ -110,6 +110,49 @@ variant retains three training sequences. The generated command manifest and
 all derived variant bundles, alignments, HMMs, and raw HMMER outputs remain
 under ignored `04_family_profiles/calibration/`.
 
+## Leave-One-Out Calibration Results (T141)
+
+**Run date:** 2026-07-27
+
+All 32 checksum-locked variants were executed serially in the isolated
+`/home/data/haoyu/PHB-GTDB-GPT-p05-calibration-r3-20260727` worktree with
+MAFFT `v7.525` and HMMER `3.4`. The six full-model control `domtblout` files
+from the earlier r2 smoke run were copied read-only into r3 after per-file
+SHA256 equality verification. The control panel regenerated in r3 matched r2
+exactly before parsing.
+
+The tracked outputs are:
+
+- `p05_hmm_leave_one_out_positive_results.tsv`: 32 held-out accession results.
+- `p05_hmm_control_smoke_results.tsv`: 171 full-model control observations.
+- `p05_hmm_calibration_decision_summary.tsv`: compact family-level calculation.
+
+For a recovered held-out seed, HMM coverage is the union of its reported
+domain HMM-coordinate intervals divided by the queried HMM length. The
+proposed rule is deliberately the strictest `full_score >= minimum positive
+score AND HMM coverage >= minimum positive coverage` rule that preserves all
+leave-one-out positives. It is a sequence-classification rule only.
+
+| Target model | Positive recovery | Proposed score / HMM coverage | Hard challenges passing rule | Result |
+|---|---:|---:|---:|---|
+| `archaeal_patatin_like_pha_dep` | 6/6 | 322.9 / 0.807453 | 0 | Eligible for human review |
+| `extracellular_mcl_pha_dep` | 6/6 | 35.5 / 0.222222 | 7 | Blocked: cross-family overlap |
+| `extracellular_scl_pha_dep_type_I` | 6/6 | 105.7 / 0.716495 | 2 | Blocked: cross-family overlap |
+| `extracellular_scl_pha_dep_type_II` | 4/5 | not proposed | not evaluated | Blocked: `AAB40611.1` not recovered |
+| `intracellular_mcl_pha_dep` | 4/4 | 617.6 / 0.992933 | 0 | Eligible for human review |
+| `intracellular_phaZ_no_lipase_box` | 5/5 | 415.0 / 0.829384 | 0 | Eligible for human review |
+
+The four report-only `intracellular_mcl_pha_dep` boundary records and the
+report-only `Q0K4D5` boundary record had strong full-model matches, as
+expected for close or unresolved same-family sequences; they did not set a
+threshold. The six archaeal non-patatin boundary records had no smoke hit.
+
+No row is approved for P06 from this calculation. The three
+`eligible_for_human_review` models remain `approved_for_p06=no` and
+`scan_permission=blocked` pending explicit review and registry update. The
+three blocked extracellular models must be revised or retired before a new
+scan is considered; a weaker rule must not be used to force a pass.
+
 ## Software And Implementation Review
 
 The command form follows HMMER `hmmsearch` HMMER 3.4, using `--domtblout` for

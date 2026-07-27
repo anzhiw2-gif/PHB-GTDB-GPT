@@ -28,7 +28,7 @@ PHB/PHA degradation phenotype.
 - P02: complete
 - P03: translation-fix rerun complete on T141; QC and manifest regenerated
 - P04: complete; seed-admission and boundary-control decisions are recorded
-- P05: in progress; the six checksum-cataloged HMMs have a tracked 171-record calibration control panel and completed full-model T141 smoke, but all remain pending leave-one-out calibration
+- P05: in progress; leave-one-out positive recovery and full-model-control parsing are complete on T141. Three models are eligible only for human review, while three are blocked by positive-recovery failure or cross-family overlap; all remain blocked from P06
 - P06: planner/parser ready; full scan blocked until every model is calibration-decided and registry-approved
 
 ## Verified Outputs
@@ -107,6 +107,17 @@ PHB/PHA degradation phenotype.
   cross-family hits for the archaeal and two intracellular models, but strong
   extracellular cross-family overlap; this is sequence evidence only and is
   not a P06 approval.
+- P05 leave-one-out evidence was completed in isolated
+  `/home/data/haoyu/PHB-GTDB-GPT-p05-calibration-r3-20260727` on 2026-07-27:
+  31/32 held-out positives were recovered. `AAB40611.1` failed recovery for
+  extracellular scl type II; extracellular mcl and scl type I retain hard
+  cross-family overlap. Archaeal patatin, intracellular mcl, and intracellular
+  no-lipase-box meet the mechanical rule but remain human-review-only. Compact
+  outputs are `p05_hmm_leave_one_out_positive_results.tsv`,
+  `p05_hmm_control_smoke_results.tsv`, and
+  `p05_hmm_calibration_decision_summary.tsv`; raw calibration artifacts remain
+  ignored. Every registry row remains `approved_for_p06=no`,
+  `scan_permission=blocked`, and `calibration_status=not_complete`.
 - P06 tracked scaffold:
   - `scripts/p06_scan_family_profiles.py`
   - `tests/test_p06_scan_family_profiles.py`
