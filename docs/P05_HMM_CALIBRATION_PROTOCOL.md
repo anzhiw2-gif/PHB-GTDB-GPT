@@ -52,6 +52,34 @@ The generated FASTAs, command manifest, raw `domtblout`, and logs remain under
 ignored `04_family_profiles/calibration/`. The compact, accessioned input panel
 is tracked in Git.
 
+## Full-Model Control Smoke (T141)
+
+**Run date:** 2026-07-27
+
+The six full HMMs were run serially with HMMER 3.4 against the generated
+control FASTAs in the isolated
+`/home/data/haoyu/PHB-GTDB-GPT-p05-calibration-r2-20260727` worktree. The
+control panel regenerated there with zero diff from the Git-tracked residue
+hashes before execution. Raw `domtblout` and logs are retained only in that
+ignored worktree.
+
+| Target model | Hard-challenge hits | Highest hard score | Highest hard HMM coverage | Boundary observation |
+|---|---:|---:|---:|---|
+| `archaeal_patatin_like_pha_dep` | 0 | none | none | 0 hits |
+| `extracellular_mcl_pha_dep` | 8 | 378.5 | 0.947 | none available |
+| `extracellular_scl_pha_dep_type_I` | 11 | 417.8 | 0.692 | none available |
+| `extracellular_scl_pha_dep_type_II` | 8 | 170.7 | 0.317 | none available |
+| `intracellular_mcl_pha_dep` | 0 | none | none | 4 report-only boundary hits; maximum score 636.9, coverage 0.993 |
+| `intracellular_phaZ_no_lipase_box` | 0 | none | none | `Q0K4D5` report-only boundary hit; score 464.9, coverage 0.976 |
+
+The result is not an approval decision. `extracellular_mcl_pha_dep` and
+`extracellular_scl_pha_dep_type_I` already show extensive high-coverage
+cross-family overlap; `extracellular_scl_pha_dep_type_II` has lower-coverage
+cross hits that may or may not be separable by a coverage rule. All three need
+leave-one-out positive calibration before a failure or retained-threshold
+decision. The zero cross-family hits for the archaeal and two intracellular
+models are encouraging but likewise require leave-one-out positive checks.
+
 ## Planned Acceptance Decision
 
 The full calibration will use leave-one-out seed models so that a retained seed

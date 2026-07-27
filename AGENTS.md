@@ -28,7 +28,7 @@ PHB/PHA degradation phenotype.
 - P02: complete
 - P03: translation-fix rerun complete on T141; QC and manifest regenerated
 - P04: complete; seed-admission and boundary-control decisions are recorded
-- P05: in progress; three approved revised HMMs were rebuilt on T141 and all six models are checksum-cataloged pending calibration
+- P05: in progress; the six checksum-cataloged HMMs have a tracked 171-record calibration control panel and completed full-model T141 smoke, but all remain pending leave-one-out calibration
 - P06: planner/parser ready; full scan blocked until every model is calibration-decided and registry-approved
 
 ## Verified Outputs
@@ -102,6 +102,11 @@ PHB/PHA degradation phenotype.
   `scan_permission=blocked`, and `calibration_status=not_complete`.
 - The seed-selection decision is recorded in
   `docs/P05_HMM_SEED_SELECTION_DECISION_2026-07-27.md`.
+- P05 calibration controls and the 2026-07-27 full-model T141 smoke are
+  recorded in `docs/P05_HMM_CALIBRATION_PROTOCOL.md`. The smoke found zero
+  cross-family hits for the archaeal and two intracellular models, but strong
+  extracellular cross-family overlap; this is sequence evidence only and is
+  not a P06 approval.
 - P06 tracked scaffold:
   - `scripts/p06_scan_family_profiles.py`
   - `tests/test_p06_scan_family_profiles.py`
