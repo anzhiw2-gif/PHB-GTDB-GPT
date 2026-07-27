@@ -34,6 +34,7 @@
 - [docs/P05_HMM_SEED_SELECTION_DECISION_2026-07-27.md](docs/P05_HMM_SEED_SELECTION_DECISION_2026-07-27.md) 固化细菌/古菌 HMM 种子证据规则和家族优化决定
 - [docs/P05_HMM_MODEL_CATALOG.md](docs/P05_HMM_MODEL_CATALOG.md) 发布 GitHub 可追溯的 HMM 元数据、种子登记和 P06 校验门控
 - [docs/P05_EXTRACELLULAR_SUBTYPE_ARCHIVE_RECORD_2026-07-28.md](docs/P05_EXTRACELLULAR_SUBTYPE_ARCHIVE_RECORD_2026-07-28.md) 记录三个胞外子模型、校准边界和 pooled core 的 P06 交接
+- [docs/P06_LAUNCH_2026-07-28.md](docs/P06_LAUNCH_2026-07-28.md) 固化四个批准 HMM 的 P06 正式扫描范围、校验、长度限制审计和断点恢复规则
 
 主要脚本在 `scripts/`：
 

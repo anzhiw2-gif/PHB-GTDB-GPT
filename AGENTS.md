@@ -29,7 +29,7 @@ PHB/PHA degradation phenotype.
 - P03: translation-fix rerun complete on T141; QC and manifest regenerated
 - P04: complete; seed-admission and boundary-control decisions are recorded
 - P05: complete; four scan models are checksum-locked and calibration-approved. The three extracellular subtype artifacts remain blocked and are replaced for P06 entry by `extracellular_pha_depolymerase_core`
-- P06: planner/parser and resumable executor are tracked; a new four-model full scan may start only from the approved registry, must retain its status checkpoint, and must audit HMMER-length-limited targets rather than treating them as non-hits
+- P06: four-model GTDB R232 full scan is running in isolated T141 worktree `/home/data/haoyu/PHB-GTDB-GPT-p06-r8-20260728` from commit `80991a7`; it uses 200-proteome chunks, 16 resumable workers, approved-model SHA256 checks, and explicit HMMER-length-limit audit tables
 
 ## Verified Outputs
 
@@ -140,6 +140,9 @@ PHB/PHA degradation phenotype.
   - `scripts/p06_stream_proteomes.py`
   - `tests/test_p06_scan_family_profiles.py`
   - `tests/test_p06_run_family_profiles.py`
+- P06 launch record:
+  - `docs/P06_LAUNCH_2026-07-28.md`
+  - 4,000 planned model-chunk jobs (four approved models x 1,000 chunks); live raw outputs, checkpoints, and overlong-target audit tables remain machine-local in r8
   - `05_hmmer_scan/README.md`
 - P06 raw HMMER outputs and candidate tables stay ignored until compact
   summaries are accepted.
