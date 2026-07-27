@@ -41,6 +41,11 @@ CANONICAL_SOURCE_DATABASES = (
     "Legacy verified",
 )
 CANONICAL_SEQUENCE_FORMATS = ("fasta", "faa")
+CANONICAL_PROFILE_SEED_STATUSES = (
+    "approved",
+    "boundary_candidate",
+    "pending_evidence_audit",
+)
 
 REQUIRED_FIELDS = (
     "seed_id",
@@ -60,6 +65,7 @@ REQUIRED_FIELDS = (
 )
 
 OPTIONAL_FIELDS = (
+    "profile_seed_status",
     "family_label",
     "source_release",
     "source_version",
@@ -164,6 +170,13 @@ def validate_reference_row(row: dict[str, str], path: Path, line_number: int) ->
         allowed = ", ".join(CANONICAL_SEQUENCE_FORMATS)
         raise ValueError(
             f"{path}:{line_number} invalid sequence_format {row['sequence_format']!r}; allowed: {allowed}"
+        )
+
+    profile_seed_status = row.get("profile_seed_status", "")
+    if profile_seed_status and profile_seed_status not in CANONICAL_PROFILE_SEED_STATUSES:
+        allowed = ", ".join(CANONICAL_PROFILE_SEED_STATUSES)
+        raise ValueError(
+            f"{path}:{line_number} invalid profile_seed_status {profile_seed_status!r}; allowed: {allowed}"
         )
 
     if row["evidence_level"] == "Excluded" and not row.get("exclusion_reason"):

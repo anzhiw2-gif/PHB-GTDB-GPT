@@ -108,6 +108,25 @@ class P05PlanFamilyProfilesTest(unittest.TestCase):
         self.assertEqual(plan_rows[0]["independent_qualifying_accession_count"], "3")
         self.assertEqual(plan_rows[0]["qualifying_source_accessions"], "AHB64615.1;AHZ23723.1;CCQ36014.1")
 
+    def test_plan_excludes_boundary_candidates_from_hmm_seed_count(self) -> None:
+        rows = [
+            self._seed_row(seed_id="seed-a1", family_category="phaZ7_like", source_accession="A1"),
+            self._seed_row(seed_id="seed-a2", family_category="phaZ7_like", source_accession="A2"),
+            self._seed_row(
+                seed_id="seed-boundary",
+                family_category="phaZ7_like",
+                source_accession="A3",
+                evidence_level="E2",
+                profile_seed_status="boundary_candidate",
+            ),
+        ]
+
+        plan_rows = plan_family_profiles(rows, minimum_independent_seeds=3)
+
+        self.assertEqual(plan_rows[0]["profile_strategy"], "anchor_set")
+        self.assertEqual(plan_rows[0]["qualifying_seed_row_count"], "2")
+        self.assertEqual(plan_rows[0]["qualifying_source_accessions"], "A1;A2")
+
     def test_build_family_profile_plan_filters_to_keep_now_families(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

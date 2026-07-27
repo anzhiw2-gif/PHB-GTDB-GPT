@@ -1,9 +1,9 @@
 kind	name	count
-reference_library	bacteria_high_confidence	34
-reference_library	archaea_literature_supported	8
-taxonomic_domain	Bacteria	34
-taxonomic_domain	Archaea	8
-family	intracellular_phaZ_no_lipase_box	5
+reference_library	bacteria_high_confidence	35
+reference_library	archaea_literature_supported	12
+taxonomic_domain	Bacteria	35
+taxonomic_domain	Archaea	12
+family	intracellular_phaZ_no_lipase_box	6
 family	extracellular_scl_pha_dep_type_I	6
 family	extracellular_scl_pha_dep_type_II	5
 family	phaZ7_like	1
@@ -12,9 +12,9 @@ family	rhodospirillum_periplasmic_like	1
 family	intracellular_mcl_pha_dep	8
 family	extracellular_mcl_pha_dep	6
 family	tigr02240_aromatic_pha_related	1
-family	archaeal_patatin_like_pha_dep	8
+family	archaeal_patatin_like_pha_dep	12
 family	auxiliary_mobilization_context	0
 evidence	E1	20
-evidence	E2	15
-evidence	E3	7
+evidence	E2	16
+evidence	E3	11
 evidence	Excluded	0

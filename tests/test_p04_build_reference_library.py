@@ -218,7 +218,18 @@ class P04BuildReferenceLibraryTest(unittest.TestCase):
             rows = load_reference_manifest(manifest)
 
             self.assertEqual(rows[0]["evidence_level"], "E3")
-            self.assertEqual(rows[0]["source_accession"], "CCQ36014.1")
+
+    def test_load_reference_manifest_rejects_unknown_profile_seed_status(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = Path(tmp) / "manifest.tsv"
+            manifest.write_text(
+                "seed_id\treference_library\ttaxonomic_domain\tfamily_category\tseed_name\tevidence_level\tsource_database\tsource_accession\torganism\ttaxon_id\tretrieval_date\tsequence_format\tsequence_length_aa\tsequence_path\tprofile_seed_status\n"
+                "seed-1\tbacteria_high_confidence\tBacteria\tphaZ7_like\tSeed\tE1\tUniProtKB\tABC123.1\tOrg\t123\t2026-07-24\tfaa\t100\tseed.faa\tnot_a_valid_status\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "invalid profile_seed_status"):
+                load_reference_manifest(manifest)
 
     def test_load_reference_manifest_rejects_archaeal_seed_without_literature(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -25,6 +25,7 @@ P04 stores seed-sequence provenance in a normalized TSV manifest.
 
 ## Optional Columns
 
+- `profile_seed_status`
 - `family_label`
 - `source_release`
 - `source_version`
@@ -120,6 +121,24 @@ Positive integer amino-acid length of the stored seed sequence.
 
 Repository-relative path to the stored seed FASTA file.
 
+### `profile_seed_status`
+
+Optional P05 HMM-admission state. Leave blank only for legacy rows that have
+not yet received an accession-level review. Accepted non-blank values are:
+
+- `approved`: the row may contribute to a P05 seed bundle when its evidence
+  level also satisfies the bacterial or archaeal library rule.
+- `boundary_candidate`: retain the accession and provenance for architecture
+  review or calibration controls, but exclude it from every P05 HMM seed
+  bundle.
+- `pending_evidence_audit`: retain the row while experimental support is
+  checked; exclude it from every P05 HMM seed bundle until it is approved.
+
+For bacterial rows, `approved` additionally requires experimental support
+tied to the accession. For archaeal E3 coverage rows, it records only
+architecture-supported coverage and must not be interpreted as phenotype
+evidence.
+
 ### Conditional fields
 
 - `exclusion_reason` is required when `evidence_level` is `Excluded`
@@ -165,6 +184,7 @@ Repository-relative path to the stored seed FASTA file.
 - reject non-numeric taxon IDs
 - reject non-positive amino-acid lengths
 - reject unknown sequence formats
+- reject unknown non-blank `profile_seed_status` values
 - reject `Excluded` rows that do not explain why they were excluded
 - reject bacterial high-confidence rows with annotation-only `E3` evidence
 - reject archaeal rows that omit `literature_support_scope`; reject `E1`/`E2`

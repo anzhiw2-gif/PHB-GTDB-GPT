@@ -1,7 +1,9 @@
 # P05 HMM Seed Selection Decision
 
 **Decision date:** 2026-07-27
-**Status:** seed review complete; model rebuild and P06 scan remain frozen until the revised seed set is approved and checksum-locked.
+**Status:** user-approved on 2026-07-27; the three affected models must be
+rebuilt and checksum-locked. P06 remains frozen until all six models complete
+their close-non-target-hydrolase calibration and receive explicit approval.
 
 ## Locked Screening Rules
 
@@ -38,11 +40,12 @@ or PHA degradation phenotype.
 Primary anchor: *Pseudomonas putida* KT2442, UniProtKB `Q5Y152`, PMID
 `17170116`, DOI `10.1074/jbc.M608119200`.
 
-The current eight-accession reinforcement is retained for audit, but each row
-must continue to carry its own E1/E2 support scope. Rows supported only by a
-cloned biosynthesis locus or a database annotation should be demoted from
-profile-seed status before the next rebuild; they may remain as boundary or
-coverage candidates.
+The user-approved profile bundle contains `Q5Y152`, `B7UCC9`, `Q88D24`, and
+`Q9R9W3`. The remaining audited records `Q5Q135`, `Q8VV57`, `Q9AGB5`, and
+`Q9Z3Y0` remain in the reference library as `boundary_candidate` controls;
+they do not enter the next HMM alignment. This preserves the genuine
+*Pseudomonas* enrichment without using weak non-*Pseudomonas* sequences to
+manufacture taxonomic balance.
 
 ## `archaeal_patatin_like_pha_dep`
 
@@ -60,8 +63,9 @@ is a secondary cross-check and maps to KEGG `HFX_6464` and RefSeq
 
 The following accessioned candidates have the patatin-like RssA annotation,
 the `IPR002641/IPR016035` cross-references where available, and a conserved
-`GxSxG` motif near the N terminus. They are suitable E3 coverage candidates,
-subject to normal retrieval/checksum logging:
+`GxSxG` motif near the N terminus. They are approved E3 coverage candidates;
+their NCBI FASTA retrieval and SHA256 verification are recorded in the P05
+retrieval log and seed provenance:
 
 | Accession | Organism | Length aa | Motif | Role |
 |---|---|---:|---|---|
@@ -108,8 +112,8 @@ support and maps to the same `PF06850/TIGR01849` family space.
 `Q0K4D5` is current *Cupriavidus* PhaZ3. The 2003 deletion study identified
 and tested its in vivo role, but concluded that its depolymerase role remained
 to be established; later work associates it more strongly with granule
-architecture than with primary PHB mobilization. Keep it as a labelled
-boundary/control sequence, not an equal-weight profile seed.
+architecture than with primary PHB mobilization. It is now a labelled
+`boundary_candidate` control, not an equal-weight profile seed.
 
 ## Model and Scan Gate
 

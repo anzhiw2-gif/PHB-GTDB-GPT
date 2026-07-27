@@ -100,7 +100,11 @@ def plan_family_profiles(
 
         reference_libraries = sorted({row["reference_library"] for row in family_rows})
         qualifying_evidence_levels = QUALIFYING_EVIDENCE_LEVELS_BY_DOMAIN[domains[0]]
-        qualifying_rows = [row for row in family_rows if row["evidence_level"] in qualifying_evidence_levels]
+        qualifying_rows = [
+            row
+            for row in family_rows
+            if row["evidence_level"] in qualifying_evidence_levels and _is_approved_profile_seed(row)
+        ]
         qualifying_seed_ids = sorted({row["seed_id"] for row in qualifying_rows})
         qualifying_accessions = sorted({row["source_accession"] for row in qualifying_rows})
         evidence_levels = _unique_join(row["evidence_level"] for row in family_rows)
@@ -290,7 +294,11 @@ def build_family_profile_queue(
         family_category = plan_row["family_category"]
         family_rows = manifest_by_family.get(family_category, [])
         qualifying_evidence_levels = QUALIFYING_EVIDENCE_LEVELS_BY_DOMAIN[plan_row["taxonomic_domain"]]
-        qualifying_rows = [row for row in family_rows if row["evidence_level"] in qualifying_evidence_levels]
+        qualifying_rows = [
+            row
+            for row in family_rows
+            if row["evidence_level"] in qualifying_evidence_levels and _is_approved_profile_seed(row)
+        ]
         manifest_accessions = sorted({row["source_accession"] for row in qualifying_rows})
         plan_accessions = sorted(_split_joined_values(plan_row["qualifying_source_accessions"]))
 
@@ -427,7 +435,7 @@ def materialize_family_seed_bundles(
     manifest_by_family: dict[str, list[dict[str, str]]] = defaultdict(list)
     for row in manifest_rows:
         qualifying_evidence_levels = QUALIFYING_EVIDENCE_LEVELS_BY_DOMAIN[row["taxonomic_domain"]]
-        if row["evidence_level"] in qualifying_evidence_levels:
+        if row["evidence_level"] in qualifying_evidence_levels and _is_approved_profile_seed(row):
             manifest_by_family[row["family_category"]].append(row)
 
     bundle_dir.mkdir(parents=True, exist_ok=True)
@@ -661,6 +669,12 @@ def main(argv: list[str] | None = None) -> int:
 def _unique_join(values: list[str] | tuple[str, ...] | set[str] | object) -> str:
     unique = sorted({value for value in values if value})
     return ";".join(unique)
+
+
+def _is_approved_profile_seed(row: dict[str, str]) -> bool:
+    """Return whether a P04 row may contribute to a P05 profile seed bundle."""
+
+    return row.get("profile_seed_status", "") in {"", "approved"}
 
 
 def _split_joined_values(value: str) -> set[str]:
