@@ -137,10 +137,13 @@ class P05ExtracellularCoreTest(unittest.TestCase):
                 check=True,
                 capture_output=True,
                 text=True,
+                cwd=root,
             )
 
             self.assertTrue(bundle.is_file())
             self.assertIn("Build command:", completed.stdout)
+            self.assertTrue((root / "04_family_profiles" / "alignments").is_dir())
+            self.assertTrue((root / "04_family_profiles" / "hmms").is_dir())
 
 
 if __name__ == "__main__":

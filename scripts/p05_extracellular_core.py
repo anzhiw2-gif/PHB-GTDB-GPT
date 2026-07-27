@@ -248,6 +248,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     bundle_path = write_core_seed_bundle(args.seed_registry, args.bundle_path)
+    args.alignment_path.parent.mkdir(parents=True, exist_ok=True)
+    args.model_path.parent.mkdir(parents=True, exist_ok=True)
     print(f"Seed bundle written: {bundle_path}")
     print(
         "Build command: "
