@@ -1,6 +1,6 @@
 # P05 Family Profile Plan
 
-**Snapshot date:** 2026-07-26
+**Snapshot date:** 2026-07-27
 
 P05 turns the curated P04 seed library into a family-by-family profile plan.
 The project boundary stays explicit: sequence evidence can justify a family
@@ -9,7 +9,7 @@ degradation phenotype.
 
 ## Current Snapshot
 
-The current normalized P04 manifest has 42 seed rows across 10 families after
+The current normalized P04 manifest has 47 seed rows across 10 families after
 the current seed-extension pass, including fresh extracellular scl type I / type
 II reinforcement and a five-sequence intracellular mcl-PHA reinforcement, but
 the default P05 planner now reads
@@ -18,9 +18,9 @@ and keeps only the 6 review-level main branches active.
 
 Under the current rule, five active bacterial families and the archaeal branch
 now reach the threshold of three independent qualifying source accessions
-needed to justify a custom HMM. The active six-family subset contains 38
-qualifying seed rows after the intracellular mcl-PHA family was raised from 3
-to 8 independent UniProtKB accessions.
+needed to justify a custom HMM. The active six-family subset contains 32
+current HMM bundle members after boundary candidates were excluded from the
+three revised family alignments.
 
 For the keep/defer split and its literature basis, see
 [P05 family classification priorities](P05_FAMILY_CLASSIFICATION_PRIORITIES.md).
@@ -32,8 +32,8 @@ rows are suitable members of one patatin-like alignment. It also records the
 rule that bacterial profile seeds require experimental support, while
 accessioned archaeal E3 rows may be used for explicitly labelled coverage.
 
-The GitHub-trackable model metadata, current 38-seed registry, proposed seed
-updates, local-artifact checksums, and P06 approval gate are recorded in
+The GitHub-trackable model metadata, current 32-seed registry, implemented
+seed-decision records, local-artifact checksums, and P06 approval gate are recorded in
 [P05 HMM model catalog](P05_HMM_MODEL_CATALOG.md). The raw HMM, MAFFT
 alignment, and seed-bundle artifacts remain machine-local; the catalog records
 their SHA256 values instead of committing the generated files.

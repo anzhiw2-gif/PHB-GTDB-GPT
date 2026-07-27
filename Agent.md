@@ -27,9 +27,9 @@ PHB/PHA degradation phenotype.
 - P01: complete
 - P02: complete
 - P03: translation-fix rerun complete on T141; QC and manifest regenerated
-- P04: complete; P05 seed reinforcement recorded
-- P05: in progress; six provisional local HMM artifacts are checksum-cataloged, with two family revisions pending confirmation
-- P06: planner/parser ready; full scan blocked until models are user-confirmed, calibration-decided, and registry-approved
+- P04: complete; seed-admission and boundary-control decisions are recorded
+- P05: in progress; three approved revised HMMs were rebuilt on T141 and all six models are checksum-cataloged pending calibration
+- P06: planner/parser ready; full scan blocked until every model is calibration-decided and registry-approved
 
 ## Verified Outputs
 
@@ -63,11 +63,12 @@ PHB/PHA degradation phenotype.
   - `01_reference_library/retrieval_logs/p04_seed_retrieval_log.tsv`
   - `01_reference_library/retrieval_logs/p05_seed_retrieval_log.tsv`
   - curated seed FASTA files under `01_reference_library/seeds/`
-- P04 manifest summary on 2026-07-26:
-  - seed rows: `42`
-  - bacterial rows: `34`
-  - archaeal rows: `8`
-  - evidence levels: `E1=20`, `E2=15`, `E3=7`, `Excluded=0`
+- P04 manifest summary on 2026-07-27:
+  - seed rows: `47`
+  - bacterial rows: `35`
+  - archaeal rows: `12`
+  - evidence levels: `E1=20`, `E2=16`, `E3=11`, `Excluded=0`
+  - profile admission: `approved=15`, `boundary_candidate=11`; remaining rows are outside the three revised-family decisions
 - P05 planner outputs:
   - `04_family_profiles/manifests/p05_family_profile_plan.tsv`
   - `04_family_profiles/manifests/p05_family_hmm_build_queue.tsv`
@@ -92,11 +93,13 @@ PHB/PHA degradation phenotype.
   - `04_family_profiles/manifests/p05_hmm_proposed_seed_updates.tsv`
   - `docs/P05_HMM_MODEL_CATALOG.md`
   - `scripts/p05_catalog_hmm_models.py`
-- The six current HMMs are provisional. A 2026-07-27 seed review found that
-  the current archaeal patatin-like set mixes the experimentally supported
-  PhaZh1-like RssA branch with longer non-patatin annotation records. Do not
-  launch a new P06 scan until the revised seed set is approved, the models are
-  rebuilt or explicitly retained, and their SHA256 values are locked.
+- `archaeal_patatin_like_pha_dep` (6 seeds), `intracellular_mcl_pha_dep`
+  (4 seeds), and `intracellular_phaZ_no_lipase_box` (5 seeds) were rebuilt on
+  T141 on 2026-07-27 using MAFFT `v7.525` L-INS-i and HMMER `3.4` in the
+  isolated `/home/data/haoyu/PHB-GTDB-GPT-p05-rebuild-20260727` worktree.
+  Their model, bundle, and alignment SHA256 values are in the tracked model
+  registry. All six models remain `approved_for_p06=no`,
+  `scan_permission=blocked`, and `calibration_status=not_complete`.
 - The seed-selection decision is recorded in
   `docs/P05_HMM_SEED_SELECTION_DECISION_2026-07-27.md`.
 - P06 tracked scaffold:
