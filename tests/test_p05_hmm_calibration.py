@@ -226,6 +226,54 @@ class P05HmmCalibrationTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "model SHA256"):
                 calibration.build_calibration_command_manifest(panel_path, model_registry, root / "calibration")
 
+    def test_leave_one_out_commands_hold_out_each_seed_and_keep_three_training_sequences(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            model_path = root / "family_a.hmm"
+            model_path.write_text("HMMER3/f family_a\n", encoding="ascii")
+            model_registry = root / "model_registry.tsv"
+            self._write_tsv(
+                model_registry,
+                ["family_category", "model_sha256", "model_path"],
+                [
+                    {
+                        "family_category": "family_a",
+                        "model_sha256": hashlib.sha256(model_path.read_bytes()).hexdigest(),
+                        "model_path": model_path.as_posix(),
+                    }
+                ],
+            )
+            seed_rows: list[dict[str, str]] = []
+            for accession in ("A1", "A2", "A3", "A4"):
+                sequence_path = self._write_sequence(root, accession)
+                seed_rows.append(
+                    {
+                        "family_category": "family_a",
+                        "model_sha256": hashlib.sha256(model_path.read_bytes()).hexdigest(),
+                        "seed_id": f"seed-{accession.lower()}",
+                        "source_accession": accession,
+                        "sequence_path": sequence_path.as_posix(),
+                    }
+                )
+            seed_registry = root / "seed_registry.tsv"
+            self._write_tsv(
+                seed_registry,
+                ["family_category", "model_sha256", "seed_id", "source_accession", "sequence_path"],
+                seed_rows,
+            )
+
+            outputs = calibration.build_leave_one_out_command_manifest(seed_registry, model_registry, root / "calibration")
+
+            with outputs["manifest"].open("r", encoding="utf-8", newline="") as handle:
+                rows = list(csv.DictReader(handle, delimiter="\t"))
+            self.assertEqual([row["holdout_accession"] for row in rows], ["A1", "A2", "A3", "A4"])
+            self.assertTrue(all(row["training_seed_count"] == "3" for row in rows))
+            self.assertTrue(all("mafft --localpair --maxiterate 1000 --inputorder" in row["command"] for row in rows))
+            self.assertTrue(all("hmmbuild --amino" in row["command"] for row in rows))
+            first_bundle = Path(rows[0]["training_bundle_path"])
+            self.assertNotIn("|A1\n", first_bundle.read_text(encoding="ascii"))
+            self.assertIn(">positive|family_a|A1", Path(rows[0]["positive_fasta_path"]).read_text(encoding="ascii"))
+
 
 if __name__ == "__main__":
     unittest.main()

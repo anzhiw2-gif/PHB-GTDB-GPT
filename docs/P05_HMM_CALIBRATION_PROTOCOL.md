@@ -99,6 +99,17 @@ P06 only when all conditions below are documented:
 If a family fails separation, it remains blocked; a weaker threshold is not
 used to force P06 approval.
 
+The reproducible leave-one-out command plan is materialized with:
+
+```powershell
+python scripts/p05_hmm_calibration.py --build-leave-one-out
+```
+
+It requires at least four current profile seeds per family, so every held-out
+variant retains three training sequences. The generated command manifest and
+all derived variant bundles, alignments, HMMs, and raw HMMER outputs remain
+under ignored `04_family_profiles/calibration/`.
+
 ## Software And Implementation Review
 
 The command form follows HMMER `hmmsearch` HMMER 3.4, using `--domtblout` for

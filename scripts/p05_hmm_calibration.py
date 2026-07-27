@@ -18,6 +18,8 @@ from pathlib import Path
 CONTROL_PANEL_FILENAME = "p05_hmm_calibration_control_panel.tsv"
 CALIBRATION_COMMAND_MANIFEST_FILENAME = "p05_hmm_calibration_command_manifest.tsv"
 CALIBRATION_COMMAND_SUMMARY_FILENAME = "p05_hmm_calibration_command_summary.tsv"
+LEAVE_ONE_OUT_COMMAND_MANIFEST_FILENAME = "p05_hmm_leave_one_out_command_manifest.tsv"
+LEAVE_ONE_OUT_COMMAND_SUMMARY_FILENAME = "p05_hmm_leave_one_out_command_summary.tsv"
 REFERENCE_REQUIRED_FIELDS = (
     "family_category",
     "source_accession",
@@ -83,6 +85,7 @@ CALIBRATION_COMMAND_FIELDNAMES = (
 )
 SUMMARY_FIELDNAMES = ("kind", "name", "count")
 COMMAND_STATUS = "planned_not_run"
+MINIMUM_LEAVE_ONE_OUT_SEEDS = 4
 
 
 def _sha256(path: Path) -> str:
@@ -468,6 +471,154 @@ def build_calibration_command_manifest(
     return {"manifest": manifest_path, "summary": summary_path}
 
 
+LEAVE_ONE_OUT_COMMAND_FIELDNAMES = (
+    "family_category",
+    "parent_model_sha256",
+    "holdout_seed_id",
+    "holdout_accession",
+    "training_seed_count",
+    "training_bundle_path",
+    "training_bundle_sha256",
+    "alignment_path",
+    "leave_one_out_hmm_path",
+    "positive_fasta_path",
+    "positive_residue_sha256",
+    "domtblout_path",
+    "main_output_path",
+    "command",
+    "command_status",
+    "notes",
+)
+
+
+def _load_seed_records_for_leave_one_out(path: Path, models: dict[str, dict[str, str]]) -> dict[str, list[dict[str, str]]]:
+    required = ("family_category", "model_sha256", "seed_id", "source_accession", "sequence_path")
+    records_by_family: dict[str, list[dict[str, str]]] = {family: [] for family in models}
+    seen_keys: set[tuple[str, str]] = set()
+    for line_number, row in enumerate(_load_tsv(path, required), start=2):
+        family = row["family_category"]
+        if family not in models:
+            continue
+        accession = row["source_accession"]
+        key = (family, accession)
+        if not all(key) or not row["seed_id"]:
+            raise ValueError(f"{path}:{line_number} has an empty seed identity")
+        if key in seen_keys:
+            raise ValueError(f"{path}:{line_number} duplicates profile seed {key!r}")
+        seen_keys.add(key)
+        if row["model_sha256"].lower() != models[family]["model_sha256"]:
+            raise ValueError(f"{path}:{line_number} model SHA256 does not match the registry for {family}")
+        sequence_path = Path(row["sequence_path"])
+        if not sequence_path.is_file():
+            raise FileNotFoundError(f"{path}:{line_number} profile seed FASTA is missing: {sequence_path}")
+        normalized = dict(row)
+        normalized["sequence_path"] = sequence_path.as_posix()
+        records_by_family[family].append(normalized)
+    for family, records in records_by_family.items():
+        if len(records) < MINIMUM_LEAVE_ONE_OUT_SEEDS:
+            raise ValueError(
+                f"{family} has {len(records)} current profile seeds; at least {MINIMUM_LEAVE_ONE_OUT_SEEDS} are required "
+                "for leave-one-out calibration with three retained training sequences"
+            )
+    return {
+        family: sorted(records, key=lambda row: (row["seed_id"], row["source_accession"]))
+        for family, records in records_by_family.items()
+    }
+
+
+def _write_seed_bundle(path: Path, records: list[dict[str, str]]) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="ascii", newline="\n") as handle:
+        for record in records:
+            handle.write(f">{record['seed_id']}|{record['source_accession']}\n")
+            sequence = _read_single_fasta_sequence(Path(record["sequence_path"]))
+            for start in range(0, len(sequence), 80):
+                handle.write(f"{sequence[start:start + 80]}\n")
+    return path
+
+
+def _write_holdout_positive(path: Path, family: str, record: dict[str, str]) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    sequence = _read_single_fasta_sequence(Path(record["sequence_path"]))
+    with path.open("w", encoding="ascii", newline="\n") as handle:
+        handle.write(f">positive|{family}|{record['source_accession']}\n")
+        for start in range(0, len(sequence), 80):
+            handle.write(f"{sequence[start:start + 80]}\n")
+    return path
+
+
+def build_leave_one_out_command_manifest(
+    seed_registry: Path,
+    model_registry: Path,
+    calibration_dir: Path,
+) -> dict[str, Path]:
+    """Write deterministic leave-one-out MAFFT, hmmbuild, and positive-search commands."""
+
+    models = _load_models_with_paths(model_registry)
+    records_by_family = _load_seed_records_for_leave_one_out(seed_registry, models)
+    root = calibration_dir / "leave_one_out"
+    command_rows: list[dict[str, str]] = []
+    for family, records in sorted(records_by_family.items()):
+        for holdout in sorted(records, key=lambda row: row["source_accession"]):
+            accession = holdout["source_accession"]
+            variant_dir = root / family / accession
+            training_records = [record for record in records if record["source_accession"] != accession]
+            training_bundle_path = _write_seed_bundle(variant_dir / "training.faa", training_records)
+            alignment_path = variant_dir / "training.aligned.faa"
+            hmm_path = variant_dir / "leave_one_out.hmm"
+            positive_fasta_path = _write_holdout_positive(variant_dir / "holdout_positive.faa", family, holdout)
+            raw_dir = variant_dir / "raw_domtblout"
+            log_dir = variant_dir / "hmmer_logs"
+            raw_dir.mkdir(parents=True, exist_ok=True)
+            log_dir.mkdir(parents=True, exist_ok=True)
+            domtblout_path = raw_dir / "holdout_positive.domtblout"
+            main_output_path = log_dir / "holdout_positive.txt"
+            command_rows.append(
+                {
+                    "family_category": family,
+                    "parent_model_sha256": models[family]["model_sha256"],
+                    "holdout_seed_id": holdout["seed_id"],
+                    "holdout_accession": accession,
+                    "training_seed_count": str(len(training_records)),
+                    "training_bundle_path": training_bundle_path.as_posix(),
+                    "training_bundle_sha256": _sha256(training_bundle_path),
+                    "alignment_path": alignment_path.as_posix(),
+                    "leave_one_out_hmm_path": hmm_path.as_posix(),
+                    "positive_fasta_path": positive_fasta_path.as_posix(),
+                    "positive_residue_sha256": _sequence_residue_sha256(positive_fasta_path),
+                    "domtblout_path": domtblout_path.as_posix(),
+                    "main_output_path": main_output_path.as_posix(),
+                    "command": (
+                        "mafft --localpair --maxiterate 1000 --inputorder "
+                        f"{_shell_quote(training_bundle_path.as_posix())} > {_shell_quote(alignment_path.as_posix())} && "
+                        f"hmmbuild --amino {_shell_quote(hmm_path.as_posix())} {_shell_quote(alignment_path.as_posix())} && "
+                        + _hmmsearch_command(hmm_path, positive_fasta_path, domtblout_path, main_output_path)
+                    ),
+                    "command_status": COMMAND_STATUS,
+                    "notes": (
+                        "Held-out seed is absent from the MAFFT/hmmbuild training set and is searched only after model build. "
+                        "This is sequence-validation evidence, not a phenotype assay."
+                    ),
+                }
+            )
+    manifest_path = _write_tsv(
+        calibration_dir / LEAVE_ONE_OUT_COMMAND_MANIFEST_FILENAME,
+        command_rows,
+        LEAVE_ONE_OUT_COMMAND_FIELDNAMES,
+    )
+    summary_rows = [
+        {"kind": "total", "name": "leave_one_out_jobs", "count": str(len(command_rows))},
+        {"kind": "total", "name": "families", "count": str(len(records_by_family))},
+        {"kind": "command_status", "name": COMMAND_STATUS, "count": str(len(command_rows))},
+    ]
+    summary_path = _write_tsv(
+        calibration_dir / LEAVE_ONE_OUT_COMMAND_SUMMARY_FILENAME,
+        summary_rows,
+        SUMMARY_FIELDNAMES,
+    )
+    return {"manifest": manifest_path, "summary": summary_path}
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Create the compact P05 HMM calibration control panel.")
     parser.add_argument(
@@ -496,6 +647,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Materialize ignored calibration target FASTAs and a planned hmmsearch command manifest.",
     )
     parser.add_argument(
+        "--build-leave-one-out",
+        action="store_true",
+        help="Materialize ignored leave-one-out training bundles and planned MAFFT/hmmbuild/hmmsearch commands.",
+    )
+    parser.add_argument(
         "--calibration-dir",
         type=Path,
         default=Path("04_family_profiles/calibration"),
@@ -514,6 +670,10 @@ def main(argv: list[str] | None = None) -> int:
         outputs = build_calibration_command_manifest(output, args.model_registry, args.calibration_dir)
         print(f"Calibration command manifest written: {outputs['manifest']}")
         print(f"Calibration command summary written: {outputs['summary']}")
+    if args.build_leave_one_out:
+        outputs = build_leave_one_out_command_manifest(args.seed_registry, args.model_registry, args.calibration_dir)
+        print(f"Leave-one-out command manifest written: {outputs['manifest']}")
+        print(f"Leave-one-out command summary written: {outputs['summary']}")
     return 0
 
 
