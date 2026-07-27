@@ -29,7 +29,7 @@ PHB/PHA degradation phenotype.
 - P03: translation-fix rerun complete on T141; QC and manifest regenerated
 - P04: complete; seed-admission and boundary-control decisions are recorded
 - P05: complete; four scan models are checksum-locked and calibration-approved. The three extracellular subtype artifacts remain blocked and are replaced for P06 entry by `extracellular_pha_depolymerase_core`
-- P06: planner/parser ready with model-specific calibrated thresholds; a new four-model full scan may start only from the approved registry
+- P06: planner/parser and resumable executor are tracked; a new four-model full scan may start only from the approved registry and must retain its status checkpoint
 
 ## Verified Outputs
 
@@ -136,7 +136,9 @@ PHB/PHA degradation phenotype.
   thresholds from the registry into its manifest and High-confidence tier.
 - P06 tracked scaffold:
   - `scripts/p06_scan_family_profiles.py`
+  - `scripts/p06_run_family_profiles.py`
   - `tests/test_p06_scan_family_profiles.py`
+  - `tests/test_p06_run_family_profiles.py`
   - `05_hmmer_scan/README.md`
 - P06 raw HMMER outputs and candidate tables stay ignored until compact
   summaries are accepted.

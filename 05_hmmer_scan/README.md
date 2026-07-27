@@ -5,8 +5,12 @@ GTDB proteome shards, then converts those raw hits into a candidate catalog.
 Sequence hits are still sequence evidence only; they do not prove phenotype.
 
 The P03 translation-fix rerun has completed and passed its nonempty-protein
-QC. P06 remains frozen because a new scan must use only user-confirmed,
-checksum-locked models. See [P05 HMM model catalog](../docs/P05_HMM_MODEL_CATALOG.md).
+QC. P06 may use only the four user-confirmed, checksum-locked models approved
+in the P05 registry: `archaeal_patatin_like_pha_dep`,
+`intracellular_mcl_pha_dep`, `intracellular_phaZ_no_lipase_box`, and
+`extracellular_pha_depolymerase_core`. The extracellular core identifies
+sequence candidates only; it must not assign mcl/scl or type-I/type-II labels.
+See [P05 HMM model catalog](../docs/P05_HMM_MODEL_CATALOG.md).
 
 ## Expected Outputs
 
@@ -37,11 +41,26 @@ export PATH=/home/data/haoyu/miniconda3/envs/phb_gtdb/bin:$PATH
   --proteomes-per-job 200
 ```
 
+Run the resulting manifest through the resumable executor. It skips existing
+nonempty `domtblout` files, records every job in an atomically rewritten status
+TSV, and leaves failed or empty-output jobs available for a later retry:
+
+```bash
+/home/data/haoyu/miniconda3/envs/phb_gtdb/bin/python scripts/p06_run_family_profiles.py \
+  --manifest 05_hmmer_scan/p06_hmmer_scan_manifest.tsv \
+  --status-dir 05_hmmer_scan/run_status \
+  --workers 4
+```
+
 Parse an existing manifest after the raw `domtblout` files have been created:
 
 ```powershell
 python scripts/p06_scan_family_profiles.py --parse-only
 ```
+
+Only parse after the run-status table reports no `failed_exit_code` or
+`failed_empty_domtblout` records. A missing raw output is reported in the
+candidate summary and is not interpreted as biological absence.
 
 The scanner uses `hmmsearch --domtblout` and keeps the raw output separate
 from derived candidate tables so later review can trace every row back to the

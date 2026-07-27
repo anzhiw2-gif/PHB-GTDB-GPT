@@ -44,6 +44,7 @@
 - `p03_monitor_progress.py`
 - `p03_monitor_translation_fix.py`
 - `p06_scan_family_profiles.py`
+- `p06_run_family_profiles.py`
 
 ## 运行环境
 
