@@ -145,6 +145,66 @@ class P05ExtracellularCoreTest(unittest.TestCase):
             self.assertTrue((root / "04_family_profiles" / "alignments").is_dir())
             self.assertTrue((root / "04_family_profiles" / "hmms").is_dir())
 
+    def test_finalize_core_calibration_writes_named_compact_results(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            external = [
+                ("extracellular_mcl_pha_dep", "E1"),
+                ("extracellular_mcl_pha_dep", "E2"),
+                ("extracellular_scl_pha_dep_type_I", "E3"),
+                ("extracellular_scl_pha_dep_type_II", "E4"),
+            ]
+            internal = ("intracellular_mcl_pha_dep", "I1")
+            reference_rows = [self._reference_row(family, accession, self._write_sequence(root, accession)) for family, accession in external]
+            reference_rows.append(self._reference_row(*internal, self._write_sequence(root, internal[1])))
+            reference_manifest = root / "reference.tsv"
+            self._write_tsv(reference_manifest, calibration.REFERENCE_REQUIRED_FIELDS, reference_rows)
+            seed_registry = root / "seed_registry.tsv"
+            self._write_tsv(
+                seed_registry,
+                ["family_category", "source_accession", "seed_id", "sequence_path", "model_sha256"],
+                [
+                    {
+                        "family_category": family,
+                        "source_accession": accession,
+                        "seed_id": f"seed-{accession.lower()}",
+                        "sequence_path": next(row for row in reference_rows if row["source_accession"] == accession)["sequence_path"],
+                        "model_sha256": "a" * 64,
+                    }
+                    for family, accession in [*external, internal]
+                ],
+            )
+            controls_manifest = root / "controls.tsv"
+            self._write_tsv(
+                controls_manifest,
+                calibration.REFERENCE_REQUIRED_FIELDS,
+                [self._reference_row("close_non_target_hydrolase", "C1", self._write_sequence(root, "C1"))],
+            )
+            model_path = root / "core.hmm"
+            model_path.write_text("HMMER3/f dummy\n", encoding="ascii")
+            outputs = extracellular_core.prepare_core_calibration(
+                seed_registry, reference_manifest, controls_manifest, model_path, root / "out"
+            )
+            with outputs["leave_one_out_manifest"].open("r", encoding="utf-8", newline="") as handle:
+                leave_rows = list(csv.DictReader(handle, delimiter="\t"))
+            for row in leave_rows:
+                Path(row["domtblout_path"]).write_text(
+                    f"positive|{extracellular_core.CORE_FAMILY}|{row['holdout_accession']} - 100 core - 100 1e-20 50.0 0.0 1 1 1e-20 1e-20 50.0 0.0 1 100 1 100 1 100 0.99 fixture\n",
+                    encoding="ascii",
+                )
+            with outputs["control_manifest"].open("r", encoding="utf-8", newline="") as handle:
+                control_manifest_rows = list(csv.DictReader(handle, delimiter="\t"))
+            for row in control_manifest_rows:
+                Path(row["domtblout_path"]).write_text("# no controls pass\n", encoding="ascii")
+
+            compact = extracellular_core.finalize_core_calibration(root / "out", root / "manifests")
+
+            with compact["decisions"].open("r", encoding="utf-8", newline="") as handle:
+                decisions = list(csv.DictReader(handle, delimiter="\t"))
+            self.assertEqual(decisions[0]["positive_recovered"], "4")
+            self.assertEqual(decisions[0]["hard_challenge_count"], "2")
+            self.assertEqual(decisions[0]["recommendation"], "eligible_for_human_review")
+
 
 if __name__ == "__main__":
     unittest.main()

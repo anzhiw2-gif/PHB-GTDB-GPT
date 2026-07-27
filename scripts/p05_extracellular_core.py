@@ -220,6 +220,37 @@ def prepare_core_calibration(
     }
 
 
+def finalize_core_calibration(output_dir: Path, manifest_dir: Path) -> dict[str, Path]:
+    """Parse completed core jobs into compact, Git-trackable calibration evidence."""
+
+    calibration_dir = output_dir / "calibration"
+    leave_one_out = calibration.parse_leave_one_out_results(
+        calibration_dir / calibration.LEAVE_ONE_OUT_COMMAND_MANIFEST_FILENAME
+    )
+    control_smoke = calibration.parse_control_smoke_results(
+        output_dir / "core_control_panel.tsv",
+        calibration_dir / calibration.CALIBRATION_COMMAND_MANIFEST_FILENAME,
+    )
+    decisions = calibration.derive_calibration_decisions(leave_one_out, control_smoke)
+    return {
+        "leave_one_out": _write_tsv(
+            manifest_dir / "p05_extracellular_core_leave_one_out_positive_results.tsv",
+            leave_one_out,
+            calibration.LEAVE_ONE_OUT_RESULT_FIELDNAMES,
+        ),
+        "control_smoke": _write_tsv(
+            manifest_dir / "p05_extracellular_core_control_smoke_results.tsv",
+            control_smoke,
+            calibration.CONTROL_SMOKE_RESULT_FIELDNAMES,
+        ),
+        "decisions": _write_tsv(
+            manifest_dir / "p05_extracellular_core_calibration_decision_summary.tsv",
+            decisions,
+            calibration.CALIBRATION_DECISION_FIELDNAMES,
+        ),
+    }
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Prepare pooled extracellular PHA-depolymerase HMM inputs.")
     parser.add_argument("--seed-registry", type=Path, default=Path("04_family_profiles/manifests/p05_hmm_seed_registry.tsv"))
@@ -230,11 +261,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model-path", type=Path, default=Path("04_family_profiles/hmms/extracellular_pha_depolymerase_core.hmm"))
     parser.add_argument("--output-dir", type=Path, default=Path("04_family_profiles/calibration/extracellular_pha_depolymerase_core"))
     parser.add_argument("--prepare-calibration", action="store_true", help="Write checksum-locked control and leave-one-out manifests after hmmbuild.")
+    parser.add_argument("--finalize-calibration", action="store_true", help="Parse completed HMMER jobs into compact calibration result tables.")
+    parser.add_argument("--manifest-dir", type=Path, default=Path("04_family_profiles/manifests"))
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
+    if args.finalize_calibration:
+        outputs = finalize_core_calibration(args.output_dir, args.manifest_dir)
+        for name, path in sorted(outputs.items()):
+            print(f"{name}: {path}")
+        return 0
     if args.prepare_calibration:
         outputs = prepare_core_calibration(
             args.seed_registry,
