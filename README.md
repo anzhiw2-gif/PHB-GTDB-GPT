@@ -31,6 +31,8 @@
 - [docs/P02_BENCHMARK_DECISION.md](docs/P02_BENCHMARK_DECISION.md) 记录 P02 的 benchmark 结果和预测器锁定
 - [docs/PREDICTION_POLICY.md](docs/PREDICTION_POLICY.md) 记录 P03 使用的生产预测策略
 - [docs/HANDOFF_2026-07-26_P05_P06_P03_TRANSLATION_FIX.md](docs/HANDOFF_2026-07-26_P05_P06_P03_TRANSLATION_FIX.md) 记录 P05/P06 当前状态和 P03 翻译修复重跑
+- [docs/P05_HMM_SEED_SELECTION_DECISION_2026-07-27.md](docs/P05_HMM_SEED_SELECTION_DECISION_2026-07-27.md) 固化细菌/古菌 HMM 种子证据规则和家族优化决定
+- [docs/P05_HMM_MODEL_CATALOG.md](docs/P05_HMM_MODEL_CATALOG.md) 发布 GitHub 可追溯的 HMM 元数据、种子登记和 P06 校验门控
 
 主要脚本在 `scripts/`：
 
@@ -91,7 +93,7 @@ cd /home/data/haoyu/PHB-GTDB-GPT
 /home/data/haoyu/miniconda3/envs/phb_gtdb/bin/python scripts/p03_monitor_translation_fix.py --once
 ```
 
-当前护栏：P06 全量 HMMER 扫描要等 P03 翻译修复完成并通过 QC 后再启动。
+当前护栏：P03 翻译修复已完成并通过 QC；但 P06 的新扫描仍被冻结，直到确认优化种子、重建或明确保留模型、记录并校验 HMM/bundle/alignment SHA256、完成校准阈值决定，并由 model registry 将模型标记为 `approved_for_p06=yes`。原始 domtblout 和候选表仍要等 compact summaries 审核后再纳入 Git。
 
 ## 运行前提
 

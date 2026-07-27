@@ -28,7 +28,7 @@ PHB/PHA degradation phenotype.
 - P02: complete
 - P03: translation-fix rerun complete on T141; QC and manifest regenerated
 - P04: complete; seed-admission and boundary-control decisions are recorded
-- P05: in progress; leave-one-out positive recovery and full-model-control parsing are complete on T141. Three models are eligible only for human review, while three are blocked by positive-recovery failure or cross-family overlap; all remain blocked from P06
+- P05: in progress; the three archived extracellular subtype models failed mutually exclusive calibration and are being replaced for P06 entry by one pooled extracellular core model with close non-target hydrolase challenges. All models remain blocked until the core and the three eligible models have explicit registry approval
 - P06: planner/parser ready; full scan blocked until every model is calibration-decided and registry-approved
 
 ## Verified Outputs
@@ -118,6 +118,14 @@ PHB/PHA degradation phenotype.
   `p05_hmm_calibration_decision_summary.tsv`; raw calibration artifacts remain
   ignored. Every registry row remains `approved_for_p06=no`,
   `scan_permission=blocked`, and `calibration_status=not_complete`.
+- The three extracellular subtype HMMs cannot support mutually exclusive P06
+  classification: mcl retains seven hard cross-family passes, type I retains
+  two, and type II misses `AAB40611.1` in leave-one-out. Do not loosen a cutoff
+  or remove an experimentally supported seed to force subtype separation.
+  Build and calibrate `extracellular_pha_depolymerase_core` from all 17
+  existing extracellular bacterial seeds instead. The hard panel must contain
+  the 15 non-extracellular active P05 seeds plus five accessioned close
+  non-target hydrolases; see `docs/P05_EXTRACELLULAR_CORE_DECISION_2026-07-27.md`.
 - P06 tracked scaffold:
   - `scripts/p06_scan_family_profiles.py`
   - `tests/test_p06_scan_family_profiles.py`
@@ -149,6 +157,18 @@ PHB/PHA degradation phenotype.
 - `docs/P05_HMM_CONSTRUCTION_VALIDATION_RECORD_2026-07-27.md`
 
 ## Operating Rules
+
+### Completed-Work Check
+
+Before every operation, inspect the current stage record, relevant compact
+manifest, Git history/status, and live runtime state to determine whether the
+same work has already completed. Do not repeat a completed retrieval, model
+build, calibration, validation, copy, or scan merely to recreate prior output.
+Reuse the verified artifact and record that it was reused. Repeat work only
+when the user explicitly requests it, an input/model checksum changed, a
+documented integrity check failed, or a new stage contract requires a distinct
+output; state the specific reason before running it. Prefer the narrowest
+missing check or next uncompleted stage over broad reruns.
 
 ### Before Any Operation
 

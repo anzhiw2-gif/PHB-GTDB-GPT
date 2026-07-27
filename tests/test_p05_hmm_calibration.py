@@ -336,8 +336,33 @@ class P05HmmCalibrationTest(unittest.TestCase):
         self.assertEqual(by_family["family_b"]["positive_recovery_missing"], "1")
         self.assertEqual(by_family["family_b"]["recommendation"], "blocked_positive_recovery_failed")
 
+    def test_derive_calibration_decisions_treats_close_non_target_hydrolase_as_hard_challenge(self) -> None:
+        decisions = calibration.derive_calibration_decisions(
+            [
+                {
+                    "family_category": "family_a",
+                    "positive_hit_status": "recovered",
+                    "best_full_score": "42.0",
+                    "hmm_coverage": "0.700000",
+                }
+            ],
+            [
+                {
+                    "family_category": "family_a",
+                    "control_role": "close_non_target_hydrolase",
+                    "hit_status": "hit",
+                    "best_full_score": "45.0",
+                    "hmm_coverage": "0.800000",
+                }
+            ],
+        )
+
+        self.assertEqual(decisions[0]["hard_challenge_count"], "1")
+        self.assertEqual(decisions[0]["hard_challenges_passing_proposed_rule"], "1")
+        self.assertEqual(decisions[0]["recommendation"], "blocked_cross_family_overlap")
+
     def test_derive_calibration_decisions_rejects_family_without_hard_challenge(self) -> None:
-        with self.assertRaisesRegex(ValueError, "hard cross-family challenge"):
+        with self.assertRaisesRegex(ValueError, "hard calibration challenge"):
             calibration.derive_calibration_decisions(
                 [
                     {

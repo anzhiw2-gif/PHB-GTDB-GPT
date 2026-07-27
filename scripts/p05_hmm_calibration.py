@@ -89,6 +89,7 @@ CALIBRATION_COMMAND_FIELDNAMES = (
 SUMMARY_FIELDNAMES = ("kind", "name", "count")
 COMMAND_STATUS = "planned_not_run"
 MINIMUM_LEAVE_ONE_OUT_SEEDS = 4
+HARD_CHALLENGE_ROLES = frozenset({"cross_family_challenge", "close_non_target_hydrolase"})
 
 
 def _sha256(path: Path) -> str:
@@ -429,7 +430,7 @@ def build_calibration_command_manifest(
             raise ValueError(f"{control_panel} has no controls for {family}")
         hard_count = sum(row["hard_negative"] == "yes" for row in family_rows)
         if hard_count == 0:
-            raise ValueError(f"{control_panel} has no cross-family hard challenge for {family}")
+            raise ValueError(f"{control_panel} has no hard calibration challenge for {family}")
         target_fasta_path = _write_control_fasta(target_dir / f"{family}.controls.faa", family_rows)
         domtblout_path = raw_dir / f"{family}.controls.domtblout"
         main_output_path = log_dir / f"{family}.controls.txt"
@@ -770,10 +771,10 @@ def derive_calibration_decisions(
         recovered = [row for row in positives if row["positive_hit_status"] == "recovered"]
         missing_count = len(positives) - len(recovered)
         controls = [row for row in control_results if row["family_category"] == family]
-        hard_controls = [row for row in controls if row["control_role"] == "cross_family_challenge"]
+        hard_controls = [row for row in controls if row["control_role"] in HARD_CHALLENGE_ROLES]
         boundary_controls = [row for row in controls if row["control_role"] == "boundary_observation"]
         if not hard_controls:
-            raise ValueError(f"Calibration evidence lacks a hard cross-family challenge for {family}")
+            raise ValueError(f"Calibration evidence lacks a hard calibration challenge for {family}")
         hard_hits = [row for row in hard_controls if row["hit_status"] == "hit"]
         boundary_hits = [row for row in boundary_controls if row["hit_status"] == "hit"]
         decision = {
@@ -818,7 +819,7 @@ def derive_calibration_decisions(
                 {
                     "recommendation": "blocked_cross_family_overlap",
                     "notes": (
-                        "One or more cross-family hard challenges pass the strictest score-and-coverage rule "
+                        "One or more hard calibration challenges pass the strictest score-and-coverage rule "
                         "that retains every leave-one-out positive."
                     ),
                 }
@@ -828,7 +829,7 @@ def derive_calibration_decisions(
                 {
                     "recommendation": "eligible_for_human_review",
                     "notes": (
-                        "All leave-one-out positives are retained and no hard cross-family challenge passes the "
+                        "All leave-one-out positives are retained and no hard calibration challenge passes the "
                         "proposed rule; P06 remains blocked pending human review and registry update."
                     ),
                 }

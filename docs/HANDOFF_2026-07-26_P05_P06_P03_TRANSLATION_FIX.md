@@ -21,10 +21,10 @@ evidence only. They do not by themselves prove PHB/PHA degradation phenotype.
 | --- | --- | --- |
 | P01 | Complete | GTDB R232 raw copy and reconciliation were completed on T141. Raw genomes remain ignored by Git and are referenced through manifests and compact docs. |
 | P02 | Complete | The production predictor is fixed to `Pyrodigal GeneFinder(meta=True)` based on the deterministic benchmark. |
-| P03 | Repair in progress | The original full run reached `199,923` FAA/GFF pairs and `615,969,593` predicted genes, but the FAA records contained empty translations. The current fix updates translation extraction and reruns P03 on T141. |
+| P03 | Complete | The original full run reached `199,923` FAA/GFF pairs and `615,969,593` predicted genes, but the FAA records contained empty translations. The translation fix reran P03 on T141, regenerated QC and manifest files, and completed with nonzero FAA residues. |
 | P04 | Complete, with P05 seed reinforcement | The normalized reference library now has `42` seed rows: `34` Bacteria and `8` Archaea, with evidence levels `E1=20`, `E2=15`, `E3=7`, `Excluded=0`. |
 | P05 | In progress | Six active family branches have enough independent qualifying seed accessions and generated HMM artifacts under ignored machine-local output directories. Final model use remains tied to calibration and provenance checks. |
-| P06 | Scaffold ready, full scan pending | `scripts/p06_scan_family_profiles.py` can plan HMMER jobs and parse existing `domtblout` outputs. Do not launch the GTDB-wide scan until the repaired P03 proteomes pass acceptance checks. |
+| P06 | Scaffold ready, full scan blocked | `scripts/p06_scan_family_profiles.py` can plan HMMER jobs and parse existing `domtblout` outputs. Earlier planning output is invalid for a new scan: P06 waits for checksum-locked, calibration-approved models in the registry. |
 
 ## P03 Translation Fix
 
@@ -52,22 +52,27 @@ cd /home/data/haoyu/PHB-GTDB-GPT
 /home/data/haoyu/miniconda3/envs/phb_gtdb/bin/python scripts/p03_monitor_translation_fix.py --once
 ```
 
-Observed T141 snapshot at 2026-07-26 23:33:10 Asia/Shanghai:
+Observed T141 snapshot at 2026-07-27 16:30:45 Asia/Shanghai:
 
 - fix-run pidfile:
   `03_gtdb_proteomes/run_logs/p03_translation_fix_20260726.pid`
-- process: running, pid `2873210`
-- rewritten FAA files since fix start: `11,172 / 199,923`
-- old-by-mtime files: `188,751`
+- process: stopped, pid `2873210`
+- rewritten FAA files since fix start: `199,923 / 199,923`
+- old-by-mtime files: `0`
 - stable rewritten sample had nonzero residue counts
-- old untouched sample still had zero residues, as expected while the rerun is
-  incomplete
 - stderr tail was empty
+
+Regenerated P03 QC/manifest snapshot:
+
+- `03_gtdb_proteomes/qc/p03_prediction_qc.tsv`
+- `03_gtdb_proteomes/manifests/p03_prediction_manifest.tsv`
+- QC rows: `199,923`
+- manifest rows: `199,923`
 
 Acceptance gate before P06 full scan:
 
-- P03 rerun completes without errors.
-- `p03_prediction_qc.tsv` and `p03_prediction_manifest.tsv` are regenerated.
+- P03 rerun completed without errors.
+- `p03_prediction_qc.tsv` and `p03_prediction_manifest.tsv` were regenerated.
 - A representative sample of final FAA files has nonzero residue counts.
 - No empty-translation failure is present in the P03 run logs.
 
@@ -144,6 +149,10 @@ export PATH=/home/data/haoyu/miniconda3/envs/phb_gtdb/bin:$PATH
   --proteomes-per-job 200
 ```
 
+The P06 planning output written before P05 model approval is not a valid new
+scan manifest. Rebuild it only after every selected model has
+`approved_for_p06=yes`, `scan_permission=approved`, and a matching HMM SHA256.
+
 P06 output directories and bulk tables are ignored by Git. Commit only compact
 accepted summaries or curated candidate tables after review.
 
@@ -170,9 +179,11 @@ git status --short --branch
 
 ## Open Items
 
-- P03 translation-fix rerun is still active on T141.
-- P06 GTDB-wide HMMER scan must wait until repaired P03 proteomes pass the
-  acceptance gate.
+- P03 translation-fix rerun completed on T141; keep the regenerated QC and
+  manifest under review if downstream assumptions change.
+- P06 GTDB-wide HMMER scan remains blocked until the P05 model registry records
+  calibrated approval. Raw domtblout and candidate tables stay ignored until
+  compact summaries are accepted.
 - P05 generated HMMs exist as ignored machine-local artifacts; final model
   calibration/provenance should be checked before downstream biological
   interpretation.
