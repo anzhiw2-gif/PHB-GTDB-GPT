@@ -146,6 +146,7 @@ PHB/PHA degradation phenotype.
 - `scripts/p06_scan_family_profiles.py`
 - `docs/P05_FAMILY_PROFILE_PLAN.md`
 - `docs/P05_HMM_MODEL_CATALOG.md`
+- `docs/P05_HMM_CONSTRUCTION_VALIDATION_RECORD_2026-07-27.md`
 
 ## Operating Rules
 

@@ -9,6 +9,8 @@ The tracked registries record the exact local profile, seed bundle, and alignmen
 
 The governing biological decisions are in [P05 HMM seed selection decision](P05_HMM_SEED_SELECTION_DECISION_2026-07-27.md). The raw artifacts remain ignored by Git, while their provenance is published in:
 
+- [P05 HMM construction and validation record](P05_HMM_CONSTRUCTION_VALIDATION_RECORD_2026-07-27.md): the end-to-end audit trail from seed admission through T141 artifact verification, calibration, and the P06 gate.
+
 - [`p05_hmm_model_registry.tsv`](../04_family_profiles/manifests/p05_hmm_model_registry.tsv): HMMER headers, HMM/bundle/alignment SHA256 values, recorded `hmmbuild` command, calibration state, and P06 permission.
 - [`p05_hmm_seed_registry.tsv`](../04_family_profiles/manifests/p05_hmm_seed_registry.tsv): all 32 current bundle members with accession, organism, evidence level, source/version/date, DOI/PMID/PMCID, sequence FASTA SHA256, and rebuild role.
 - [`p05_hmm_proposed_seed_updates.tsv`](../04_family_profiles/manifests/p05_hmm_proposed_seed_updates.tsv): 26 implemented profile-seed or retained boundary-control decisions, each with a source FASTA SHA256.
@@ -22,9 +24,10 @@ families were rebuilt with MAFFT `v7.525` L-INS-i followed by `hmmbuild
 --amino` on T141 in the isolated
 `/home/data/haoyu/PHB-GTDB-GPT-p05-rebuild-20260727` worktree. The three
 extracellular models are retained archived artifacts. No profile contains
-model-specific `GA`, `TC`, or `NC` thresholds, so calibration against close
-non-target hydrolases remains incomplete. All rows are `approved_for_p06=no`
-and `scan_permission=blocked`.
+model-specific `GA`, `TC`, or `NC` thresholds. Leave-one-out and hard-control
+calculation evidence is recorded, but no threshold has received human approval
+or been written to the registry. All rows remain `approved_for_p06=no` and
+`scan_permission=blocked`.
 
 | Family | Status | NSEQ | HMM length | EFFN | Model SHA256 |
 |---|---|---:|---:|---:|---|

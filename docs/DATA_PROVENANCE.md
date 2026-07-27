@@ -100,3 +100,6 @@ control-smoke observations, and family recommendations. These tables retain
 accession-level sequence evidence and threshold provenance while excluding raw
 HMMER output. They do not establish PHB/PHA degradation phenotypes for GTDB
 homologs and do not approve a P06 scan.
+
+The consolidated construction, artifact-verification, calibration, and P06
+gate record is `docs/P05_HMM_CONSTRUCTION_VALIDATION_RECORD_2026-07-27.md`.
