@@ -86,3 +86,10 @@ L-INS-i (`--localpair --maxiterate 1000`) followed by HMMER `3.4`
 are in the tracked P05 registries. Raw profiles remain ignored and machine
 local. All six P05 models are blocked from P06 pending calibration against
 close non-target hydrolases; homology remains sequence evidence only.
+
+The accessioned P05 calibration input contract is tracked at
+`04_family_profiles/manifests/p05_hmm_calibration_control_panel.tsv`.
+It distinguishes hard cross-family sequence challenges from report-only
+same-family boundary observations, with sequence SHA256 and source provenance
+for every record. See `docs/P05_HMM_CALIBRATION_PROTOCOL.md`; raw calibration
+FASTA and HMMER outputs remain machine-local and ignored.

@@ -37,6 +37,45 @@ and `scan_permission=blocked`.
 
 The TSV registry is authoritative for the matching bundle and alignment hashes; a raw HMM is never accepted merely because its filename matches a family name.
 
+## Calibration Control Panel
+
+[`p05_hmm_calibration_control_panel.tsv`](../04_family_profiles/manifests/p05_hmm_calibration_control_panel.tsv)
+is the accession-level input contract for P05 calibration. For every target
+model it records two deliberately different categories:
+
+- `cross_family_challenge`: a current seed from another active profile family.
+  It is a hard sequence-specificity challenge and must fail the final calibrated
+  threshold. This does not describe its source sequence as phenotype-negative.
+- `boundary_observation`: a target-family `boundary_candidate` retained for
+  architecture/evidence review. It is reported but never used to choose a
+  rejection threshold, because its biological family membership remains
+  unresolved by design.
+
+The panel carries the exact source accession, organism, database/release,
+retrieval date, literature identifiers, FASTA path, and sequence SHA256. It is
+generated deterministically from the P04 reference manifest plus the current
+P05 model/seed registries:
+
+```powershell
+python scripts/p05_hmm_calibration.py
+```
+
+For an executable-on-T141 but deliberately non-executed calibration plan, use:
+
+```powershell
+python scripts/p05_hmm_calibration.py --build-commands
+```
+
+This creates one checksum-verified control FASTA and one deterministic
+`hmmsearch --noali --acc --seed 42 --cpu 1 --domtblout` command per model under
+the ignored `04_family_profiles/calibration/` directory. The initial commands
+are a control-panel smoke check; they do not themselves set a P06 threshold.
+
+The next calibration step will use leave-one-out seed models to define
+positive-score/coverage bounds, then require separation from every
+`cross_family_challenge`. A failed or incomplete result cannot change
+`approved_for_p06=no` or `scan_permission=blocked`.
+
 ## Family Decisions
 
 `intracellular_mcl_pha_dep` remains *Pseudomonas*-enriched because this is an intrinsic feature of the known intracellular mcl-PHA mobilization family, not seed bias. Its rebuilt bundle is `Q5Y152`, `B7UCC9`, `Q88D24`, and `Q9R9W3`; `Q5Y152` is the primary experimental anchor. `Q5Q135`, `Q8VV57`, `Q9AGB5`, and `Q9Z3Y0` are retained only as boundary controls. Do not add weak non-*Pseudomonas* sequences merely to force cross-genus balance.

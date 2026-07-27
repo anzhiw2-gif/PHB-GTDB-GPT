@@ -21,6 +21,7 @@
 !04_family_profiles/manifests/p05_hmm_model_registry.tsv
 !04_family_profiles/manifests/p05_hmm_seed_registry.tsv
 !04_family_profiles/manifests/p05_hmm_proposed_seed_updates.tsv
+!04_family_profiles/manifests/p05_hmm_calibration_control_panel.tsv
 05_hmmer_scan/raw_hits/
 05_hmmer_scan/filtered_hits/
 05_hmmer_scan/candidates/
