@@ -4,7 +4,8 @@
 **Stage:** P05 family-profile construction and calibration
 **GTDB analysis target:** Release 11 R232
 **Execution host:** T141 (`/home/data/haoyu`)
-**P06 state:** all six models remain blocked; no GTDB-wide scan was launched.
+**P06 state:** four calibration-approved models are ready for a new scan; no
+GTDB-wide scan had been launched at the time this P05 validation record was updated.
 
 ## Purpose And Claim Boundary
 
@@ -164,13 +165,18 @@ boundary records had no smoke hit.
 
 ## Current P06 Decision
 
-No P06 scan is authorized. Even the three models marked
-`eligible_for_human_review` retain `approved_for_p06=no`,
-`scan_permission=blocked`, and `calibration_status=not_complete` in the model
-registry. The two overlapping extracellular models require family/seed-model
-revision or retirement; the type-II model requires investigation of the
-`AAB40611.1` positive-recovery failure. A weaker cutoff must not be used to
-force any of these models through the gate.
+Human review approved the three individually calibrated models with no hard
+challenge passing their retained rule: `archaeal_patatin_like_pha_dep`,
+`intracellular_mcl_pha_dep`, and `intracellular_phaZ_no_lipase_box`. The
+extracellular subtype models remain blocked because their seed classes overlap.
+They are replaced for P06 entry by the checksum-locked
+`extracellular_pha_depolymerase_core`; its 17/17 leave-one-out recovery and
+0/20 hard-control passing result are recorded in
+[P05_EXTRACELLULAR_CORE_DECISION_2026-07-27.md](P05_EXTRACELLULAR_CORE_DECISION_2026-07-27.md).
+
+The model registry now permits exactly four scan models. P06 must carry each
+model's calibrated score and HMM-coverage thresholds into its manifest and
+High-confidence parsing tier; an HMM hit remains sequence evidence only.
 
 ## Reproduction And Verification Commands
 

@@ -2,7 +2,7 @@
 
 **Decision date:** 2026-07-27
 **Stage:** P05 model optimization before P06
-**Status:** calibration package prepared; P06 remains blocked
+**Status:** calibration complete and approved for P06
 
 ## Why The Three Extracellular Models Cannot Enter P06 As Subtype Classifiers
 
@@ -86,3 +86,20 @@ P06 candidates from the core model remain sequence candidates. Localization,
 signal peptide, architecture, and phylogenetic placement are subsequent
 evidence layers; none establishes a PHA-degradation phenotype or a substrate
 subtype by itself.
+
+## T141 Calibration Result
+
+The isolated T141 r7 worktree built the core with MAFFT `v7.525` L-INS-i and
+HMMER `3.4`. The HMM header reports `LENG=582`, `NSEQ=17`, and
+`EFFN=2.618896`. Artifact SHA256 values are bundle
+`208ba02978158968563ca4de0a41dabebb9ae0e8bde5cbc16cacc1cbeb77f9e7`,
+alignment `3f5a475dfd4de86a03c2f4f009009302765410adae7f043299cdedb80bd036da`,
+and HMM `74c4b69a2d845f0725d0bc348402e6a51ba3c17a9f67f8cabed3b63df6a6e2f4`.
+
+All `17/17` held-out positives were recovered. The final rule is full score
+`>=159.9` and HMM coverage `>=0.405498`. Of 20 hard controls, only `A6WFI5`
+reported any HMMER hit (score `1.3`, coverage `0.292096`), so `0/20` controls
+pass the rule. The compact accession-level results are
+`p05_extracellular_core_leave_one_out_positive_results.tsv` and
+`p05_extracellular_core_control_smoke_results.tsv`; the approved decision is
+in `p05_extracellular_core_calibration_decision_summary.tsv`.

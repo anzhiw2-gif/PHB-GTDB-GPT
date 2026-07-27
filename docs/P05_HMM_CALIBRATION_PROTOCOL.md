@@ -147,11 +147,13 @@ report-only `Q0K4D5` boundary record had strong full-model matches, as
 expected for close or unresolved same-family sequences; they did not set a
 threshold. The six archaeal non-patatin boundary records had no smoke hit.
 
-No row is approved for P06 from this calculation. The three
-`eligible_for_human_review` models remain `approved_for_p06=no` and
-`scan_permission=blocked` pending explicit review and registry update. The
-three blocked extracellular models must be revised or retired before a new
-scan is considered; a weaker rule must not be used to force a pass.
+This calculation did not itself change any approval field. Subsequent human
+review approved the three `eligible_for_human_review` models and retired the
+three extracellular subtype models from direct scanning. The latter are
+replaced by the validated pooled core model documented in
+[`P05_EXTRACELLULAR_CORE_DECISION_2026-07-27.md`](P05_EXTRACELLULAR_CORE_DECISION_2026-07-27.md).
+The registry records the resulting four approved scan models and their
+model-specific score and HMM-coverage thresholds.
 
 ## Software And Implementation Review
 

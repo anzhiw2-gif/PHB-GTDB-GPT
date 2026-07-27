@@ -28,11 +28,26 @@ class P06ScanFamilyProfilesTest(unittest.TestCase):
         )
         return hmm_dir, proteome_dir, registry
 
-    def _write_model_registry(self, registry: Path, hmm_paths: list[Path], *, approved: bool = True) -> None:
+    def _write_model_registry(
+        self,
+        registry: Path,
+        hmm_paths: list[Path],
+        *,
+        approved: bool = True,
+        score_threshold: str = "120.0",
+        hmm_coverage_threshold: str = "0.700000",
+    ) -> None:
         with registry.open("w", encoding="utf-8", newline="") as handle:
             writer = csv.DictWriter(
                 handle,
-                fieldnames=["family_category", "approved_for_p06", "scan_permission", "model_path", "model_sha256"],
+                fieldnames=[
+                    "family_category",
+                    "approved_for_p06",
+                    "scan_permission",
+                    "model_path",
+                    "model_sha256",
+                    "model_specific_thresholds",
+                ],
                 delimiter="\t",
                 lineterminator="\n",
             )
@@ -45,6 +60,9 @@ class P06ScanFamilyProfilesTest(unittest.TestCase):
                         "scan_permission": "approved" if approved else "blocked",
                         "model_path": hmm_path.as_posix(),
                         "model_sha256": hashlib.sha256(hmm_path.read_bytes()).hexdigest(),
+                        "model_specific_thresholds": (
+                            f"full_score>={score_threshold};hmm_coverage>={hmm_coverage_threshold}" if approved else "none"
+                        ),
                     }
                 )
 
@@ -85,6 +103,24 @@ class P06ScanFamilyProfilesTest(unittest.TestCase):
             self.assertEqual(len(rows[0]["model_sha256"]), 64)
             self.assertTrue(rows[0]["domtblout_path"].endswith(".domtblout"))
             self.assertEqual(rows[0]["command_status"], "planned_not_run")
+
+    def test_build_scan_manifest_carries_calibrated_model_thresholds(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hmm_dir, proteome_dir, registry = self._write_inputs(root)
+            self._write_model_registry(
+                registry,
+                [hmm_dir / "phaZ7_like.hmm", hmm_dir / "intracellular_phaZ_no_lipase_box.hmm"],
+                score_threshold="300.0",
+                hmm_coverage_threshold="0.800000",
+            )
+
+            outputs = p06.build_scan_manifest(hmm_dir, proteome_dir, root / "05_hmmer_scan", model_registry=registry)
+
+            with outputs["manifest"].open("r", encoding="utf-8", newline="") as handle:
+                rows = list(csv.DictReader(handle, delimiter="\t"))
+            self.assertTrue(all(row["calibrated_full_score_threshold"] == "300.0" for row in rows))
+            self.assertTrue(all(row["calibrated_hmm_coverage_threshold"] == "0.800000" for row in rows))
 
     def test_build_scan_manifest_accepts_recursive_gzipped_p03_proteomes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

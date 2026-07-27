@@ -19,24 +19,22 @@ The governing biological decisions are in [P05 HMM seed selection decision](P05_
 
 ## Current Profiles
 
-All six profiles are HMMER `HMMER3/f` version `3.4` artifacts. Three affected
-families were rebuilt with MAFFT `v7.525` L-INS-i followed by `hmmbuild
---amino` on T141 in the isolated
-`/home/data/haoyu/PHB-GTDB-GPT-p05-rebuild-20260727` worktree. The three
-extracellular models are retained archived artifacts. No profile contains
-model-specific `GA`, `TC`, or `NC` thresholds. Leave-one-out and hard-control
-calculation evidence is recorded, but no threshold has received human approval
-or been written to the registry. All rows remain `approved_for_p06=no` and
-`scan_permission=blocked`.
+The registry retains six historical branches and one new pooled extracellular
+core. Exactly four are approved P06 scan profiles. Each uses a registry-level
+calibrated full-score/HMM-coverage rule; these are parser thresholds, not HMMER
+`GA`, `TC`, or `NC` fields. The three extracellular subtype models remain
+archived for downstream interpretation but are deliberately blocked from
+direct scanning.
 
 | Family | Status | NSEQ | HMM length | EFFN | Model SHA256 |
 |---|---|---:|---:|---:|---|
-| `archaeal_patatin_like_pha_dep` | `rebuilt_pending_calibration` | 6 | 324 | 0.612305 | `4d0fd5a38e8465834e1e559e99d66162c432c4ccc6eaa36b0953f00137e51582` |
-| `extracellular_mcl_pha_dep` | `provisional_archived_pending_calibration` | 6 | 337 | 0.893555 | `75bf6bfabb660b775ba382b60cd487ab80175b88aa9500263f8a086f834218e8` |
-| `extracellular_scl_pha_dep_type_I` | `provisional_archived_pending_calibration` | 6 | 569 | 1.133789 | `8d38501c7ecc860bfb416dd46b1a6bca4151e46a133b14b20ec5ca47bf537744` |
-| `extracellular_scl_pha_dep_type_II` | `provisional_archived_pending_calibration` | 5 | 502 | 0.913086 | `d90af7a8879dce760b4b80ef18691ce1f6a25f59c852affb333cf0929cc89e0b` |
-| `intracellular_mcl_pha_dep` | `rebuilt_pending_calibration` | 4 | 284 | 0.386719 | `d7628183e88204ecac3f2d165eff5ad78fa087aa2ca09eccf1809ff53e72b933` |
-| `intracellular_phaZ_no_lipase_box` | `rebuilt_pending_calibration` | 5 | 411 | 0.756836 | `9cb33d27edce3af5266d3d80d9a7b6965eeef20deb9f5028c1e427ae5d033457` |
+| `archaeal_patatin_like_pha_dep` | approved | 6 | 324 | 0.612305 | `4d0fd5a38e8465834e1e559e99d66162c432c4ccc6eaa36b0953f00137e51582` |
+| `extracellular_pha_depolymerase_core` | approved | 17 | 582 | 2.618896 | `74c4b69a2d845f0725d0bc348402e6a51ba3c17a9f67f8cabed3b63df6a6e2f4` |
+| `intracellular_mcl_pha_dep` | approved | 4 | 284 | 0.386719 | `d7628183e88204ecac3f2d165eff5ad78fa087aa2ca09eccf1809ff53e72b933` |
+| `intracellular_phaZ_no_lipase_box` | approved | 5 | 411 | 0.756836 | `9cb33d27edce3af5266d3d80d9a7b6965eeef20deb9f5028c1e427ae5d033457` |
+| `extracellular_mcl_pha_dep` | blocked subtype reference | 6 | 337 | 0.893555 | `75bf6bfabb660b775ba382b60cd487ab80175b88aa9500263f8a086f834218e8` |
+| `extracellular_scl_pha_dep_type_I` | blocked subtype reference | 6 | 569 | 1.133789 | `8d38501c7ecc860bfb416dd46b1a6bca4151e46a133b14b20ec5ca47bf537744` |
+| `extracellular_scl_pha_dep_type_II` | blocked subtype reference | 5 | 502 | 0.913086 | `d90af7a8879dce760b4b80ef18691ce1f6a25f59c852affb333cf0929cc89e0b` |
 
 The TSV registry is authoritative for the matching bundle and alignment hashes; a raw HMM is never accepted merely because its filename matches a family name.
 
@@ -79,9 +77,10 @@ parsed into compact tracked results:
 [`p05_hmm_leave_one_out_positive_results.tsv`](../04_family_profiles/manifests/p05_hmm_leave_one_out_positive_results.tsv),
 [`p05_hmm_control_smoke_results.tsv`](../04_family_profiles/manifests/p05_hmm_control_smoke_results.tsv),
 and [`p05_hmm_calibration_decision_summary.tsv`](../04_family_profiles/manifests/p05_hmm_calibration_decision_summary.tsv).
-Three models are eligible only for human review; the other three are blocked
-by positive-recovery failure or cross-family overlap. No result changes
-`approved_for_p06=no` or `scan_permission=blocked`.
+Human review approved the three separable profiles and the new core. Core
+accession-level results and its 17-member seed registry are tracked as
+`p05_extracellular_core_*` manifests. The three subtype artifacts remain
+`approved_for_p06=no` and `scan_permission=blocked`.
 
 ## Family Decisions
 
@@ -93,9 +92,10 @@ For `intracellular_phaZ_no_lipase_box`, retain `O87189`, `Q0K7T2`, `Q71KW6`, and
 
 ## Scan Enforcement
 
-`scripts/p06_scan_family_profiles.py` requires the model registry. It accepts only rows with `approved_for_p06=yes` and `scan_permission=approved`, recomputes the local HMM SHA256, and writes that value into every P06 scan-manifest row. It rejects missing or empty approval, a model outside `--hmm-dir`, and a hash mismatch.
+`scripts/p06_scan_family_profiles.py` requires the model registry. It accepts only rows with `approved_for_p06=yes` and `scan_permission=approved`, recomputes the local HMM SHA256, and writes that value plus the calibrated full-score/HMM-coverage thresholds into every P06 scan-manifest row. It rejects missing approval, a model outside `--hmm-dir`, a hash mismatch, or an approved model without both thresholds.
 
-Before a new scan: calibrate every model against close non-target hydrolases; record thresholds and the calibration decision; then mark only approved rows for P06 and pass single-file plus multi-file streaming smoke tests.
+The four approved profiles have completed this gate. Run the single-file and
+multi-file streaming P06 smoke tests before the full launch.
 
 ## Reproduction
 

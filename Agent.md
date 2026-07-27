@@ -28,8 +28,8 @@ PHB/PHA degradation phenotype.
 - P02: complete
 - P03: translation-fix rerun complete on T141; QC and manifest regenerated
 - P04: complete; seed-admission and boundary-control decisions are recorded
-- P05: in progress; the three archived extracellular subtype models failed mutually exclusive calibration and are being replaced for P06 entry by one pooled extracellular core model with close non-target hydrolase challenges. All models remain blocked until the core and the three eligible models have explicit registry approval
-- P06: planner/parser ready; full scan blocked until every model is calibration-decided and registry-approved
+- P05: complete; four scan models are checksum-locked and calibration-approved. The three extracellular subtype artifacts remain blocked and are replaced for P06 entry by `extracellular_pha_depolymerase_core`
+- P06: planner/parser ready with model-specific calibrated thresholds; a new four-model full scan may start only from the approved registry
 
 ## Verified Outputs
 
@@ -116,8 +116,8 @@ PHB/PHA degradation phenotype.
   outputs are `p05_hmm_leave_one_out_positive_results.tsv`,
   `p05_hmm_control_smoke_results.tsv`, and
   `p05_hmm_calibration_decision_summary.tsv`; raw calibration artifacts remain
-  ignored. Every registry row remains `approved_for_p06=no`,
-  `scan_permission=blocked`, and `calibration_status=not_complete`.
+  ignored. These archived six-row results are superseded by the approved
+  four-model registry decision below.
 - The three extracellular subtype HMMs cannot support mutually exclusive P06
   classification: mcl retains seven hard cross-family passes, type I retains
   two, and type II misses `AAB40611.1` in leave-one-out. Do not loosen a cutoff
@@ -126,6 +126,14 @@ PHB/PHA degradation phenotype.
   existing extracellular bacterial seeds instead. The hard panel must contain
   the 15 non-extracellular active P05 seeds plus five accessioned close
   non-target hydrolases; see `docs/P05_EXTRACELLULAR_CORE_DECISION_2026-07-27.md`.
+- `extracellular_pha_depolymerase_core` was built in isolated T141 r7 with
+  MAFFT `v7.525` L-INS-i and HMMER `3.4`: `NSEQ=17`, HMM SHA256
+  `74c4b69a2d845f0725d0bc348402e6a51ba3c17a9f67f8cabed3b63df6a6e2f4`.
+  It recovered `17/17` held-out positives. Its final rule is full score
+  `>=159.9` and HMM coverage `>=0.405498`; `0/20` hard controls pass it.
+  Approved P06 models are this core plus archaeal patatin, intracellular mcl,
+  and intracellular no-lipase-box. P06 must propagate these per-model
+  thresholds from the registry into its manifest and High-confidence tier.
 - P06 tracked scaffold:
   - `scripts/p06_scan_family_profiles.py`
   - `tests/test_p06_scan_family_profiles.py`

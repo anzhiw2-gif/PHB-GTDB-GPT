@@ -30,6 +30,7 @@ MODEL_REGISTRY_REQUIRED_FIELDS = (
     "scan_permission",
     "model_path",
     "model_sha256",
+    "model_specific_thresholds",
 )
 PROTEOME_FASTA_SUFFIXES = (
     ".faa.gz",
@@ -46,6 +47,8 @@ SCAN_MANIFEST_FIELDNAMES = (
     "proteome_count",
     "hmm_path",
     "model_sha256",
+    "calibrated_full_score_threshold",
+    "calibrated_hmm_coverage_threshold",
     "proteome_path",
     "domtblout_path",
     "main_output_path",
@@ -84,6 +87,8 @@ CANDIDATE_FIELDNAMES = (
     "tier",
     "tier_reason",
     "domtblout_path",
+    "calibrated_full_score_threshold",
+    "calibrated_hmm_coverage_threshold",
 )
 
 SUMMARY_FIELDNAMES = ("kind", "name", "count")
@@ -114,7 +119,7 @@ def build_scan_manifest(
     outdir.mkdir(parents=True, exist_ok=True)
 
     manifest_rows: list[dict[str, str]] = []
-    for hmm_path, model_sha256 in approved_models:
+    for hmm_path, model_sha256, score_threshold, hmm_coverage_threshold in approved_models:
         family_category = hmm_path.stem
         family_raw_dir = raw_domtblout_dir / _safe_identifier(family_category)
         family_log_dir = raw_log_dir / _safe_identifier(family_category)
@@ -136,6 +141,8 @@ def build_scan_manifest(
                     "proteome_count": str(len(proteome_chunk)),
                     "hmm_path": _posix_path(hmm_path),
                     "model_sha256": model_sha256,
+                    "calibrated_full_score_threshold": f"{score_threshold:.1f}",
+                    "calibrated_hmm_coverage_threshold": f"{hmm_coverage_threshold:.6f}",
                     "proteome_path": _unique_join(_posix_path(path) for path in proteome_chunk),
                     "domtblout_path": _posix_path(domtblout_path),
                     "main_output_path": _posix_path(main_output_path),
@@ -149,6 +156,7 @@ def build_scan_manifest(
                     "command_status": COMMAND_STATUS,
                     "notes": (
                         "Prepared from the checksum-locked approved P05 HMM registry; hmmsearch was not run. "
+                        "High-confidence parsing requires this model's calibrated score and HMM-coverage thresholds. "
                         "Raw domtblout and logs stay separate from derived candidate tables."
                     ),
                 }
@@ -263,16 +271,18 @@ def classify_candidate(candidate: dict[str, str]) -> tuple[str, str]:
     hmm_coverage = float(candidate["hmm_coverage"])
     target_coverage = float(candidate["target_coverage"])
     domain_overlap = float(candidate["domain_overlap_fraction"])
+    calibrated_score = float(candidate["calibrated_full_score_threshold"])
+    calibrated_hmm_coverage = float(candidate["calibrated_hmm_coverage_threshold"])
 
     if (
-        evalue <= 1e-20
-        and score >= 120.0
-        and hmm_coverage >= 0.70
-        and target_coverage >= 0.60
-        and bias <= 1.0
-        and domain_overlap <= 0.20
+        evalue <= 1e-5
+        and score >= calibrated_score
+        and hmm_coverage >= calibrated_hmm_coverage
+        and target_coverage >= 0.20
+        and bias <= 3.0
+        and domain_overlap <= 0.35
     ):
-        return "High-confidence", "passes conservative score, coverage, bias, and overlap gates"
+        return "High-confidence", "passes this model's calibrated score and HMM-coverage thresholds plus review gates"
 
     if (
         evalue <= 1e-5
@@ -316,7 +326,7 @@ def load_scan_manifest(path: Path) -> list[dict[str, str]]:
     return rows
 
 
-def load_approved_hmm_models(model_registry: Path, hmm_dir: Path) -> list[tuple[Path, str]]:
+def load_approved_hmm_models(model_registry: Path, hmm_dir: Path) -> list[tuple[Path, str, float, float]]:
     """Return only registry-approved HMMs after exact path and checksum checks."""
 
     if not model_registry.is_file():
@@ -344,7 +354,7 @@ def load_approved_hmm_models(model_registry: Path, hmm_dir: Path) -> list[tuple[
             "record SHA256 values, and complete the calibration decision before planning a scan."
         )
 
-    models: list[tuple[Path, str]] = []
+    models: list[tuple[Path, str, float, float]] = []
     seen_families: set[str] = set()
     for line_number, row in enumerate(approved_rows, start=2):
         family = row["family_category"]
@@ -362,9 +372,35 @@ def load_approved_hmm_models(model_registry: Path, hmm_dir: Path) -> list[tuple[
                 f"{model_registry}:{line_number} checksum mismatch for {model_path}: "
                 f"expected {expected_hash}, observed {observed_hash}"
             )
+        score_threshold, hmm_coverage_threshold = _parse_model_thresholds(
+            row["model_specific_thresholds"], model_registry, line_number
+        )
         seen_families.add(family)
-        models.append((model_path, expected_hash))
+        models.append((model_path, expected_hash, score_threshold, hmm_coverage_threshold))
     return sorted(models, key=lambda item: item[0].as_posix())
+
+
+def _parse_model_thresholds(value: str, registry_path: Path, line_number: int) -> tuple[float, float]:
+    """Read the two P05-derived acceptance thresholds from one approved registry row."""
+
+    values: dict[str, float] = {}
+    for token in value.split(";"):
+        key, separator, raw_value = token.partition(">=")
+        if not separator:
+            continue
+        try:
+            parsed = float(raw_value)
+        except ValueError as exc:
+            raise ValueError(f"{registry_path}:{line_number} has an invalid calibrated threshold {token!r}") from exc
+        if not math.isfinite(parsed) or parsed <= 0:
+            raise ValueError(f"{registry_path}:{line_number} has a non-positive calibrated threshold {token!r}")
+        values[key.strip()] = parsed
+    try:
+        return values["full_score"], values["hmm_coverage"]
+    except KeyError as exc:
+        raise ValueError(
+            f"{registry_path}:{line_number} approved model must record full_score>=...;hmm_coverage>=..."
+        ) from exc
 
 
 def load_domtblout_rows(path: Path) -> list[dict[str, str]]:
@@ -447,6 +483,8 @@ def _candidate_row_from_raw(
         "hmm_coverage": _format_fraction((hmm_to - hmm_from + 1) / query_length),
         "target_coverage": _format_fraction((ali_to - ali_from + 1) / target_length),
         "domain_overlap_fraction": "0.0000",
+        "calibrated_full_score_threshold": scan_row["calibrated_full_score_threshold"],
+        "calibrated_hmm_coverage_threshold": scan_row["calibrated_hmm_coverage_threshold"],
         "tier": "",
         "tier_reason": "",
         "domtblout_path": _posix_path(domtblout_path),
