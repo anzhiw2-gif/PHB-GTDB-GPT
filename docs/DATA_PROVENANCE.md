@@ -84,8 +84,10 @@ PMID `11267773` and DOI `10.1111/j.1574-6968.2001.tb10558.x`.
 L-INS-i (`--localpair --maxiterate 1000`) followed by HMMER `3.4`
 `hmmbuild --amino`. The compact model, alignment, bundle, and sequence hashes
 are in the tracked P05 registries. Raw profiles remain ignored and machine
-local. All six P05 models are blocked from P06 pending calibration against
-close non-target hydrolases; homology remains sequence evidence only.
+local. Subsequent calibration approved the three rebuilt profiles plus the
+pooled `extracellular_pha_depolymerase_core` for P06. The three original
+extracellular subtype HMMs are retained as blocked reference artifacts because
+their sequence boundaries overlap; homology remains sequence evidence only.
 
 The accessioned P05 calibration input contract is tracked at
 `04_family_profiles/manifests/p05_hmm_calibration_control_panel.tsv`.
@@ -99,7 +101,11 @@ compact TSVs under `04_family_profiles/manifests/`: held-out positive results,
 control-smoke observations, and family recommendations. These tables retain
 accession-level sequence evidence and threshold provenance while excluding raw
 HMMER output. They do not establish PHB/PHA degradation phenotypes for GTDB
-homologs and do not approve a P06 scan.
+homologs. Human review and the approved model registry, rather than a raw
+calculation table alone, authorize the four-model P06 scan.
 
 The consolidated construction, artifact-verification, calibration, and P06
 gate record is `docs/P05_HMM_CONSTRUCTION_VALIDATION_RECORD_2026-07-27.md`.
+The archived extracellular subtype construction, calibration failure, and
+checksum-locked transition to the pooled core are documented in
+`docs/P05_EXTRACELLULAR_SUBTYPE_ARCHIVE_RECORD_2026-07-28.md`.

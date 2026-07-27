@@ -178,6 +178,10 @@ The model registry now permits exactly four scan models. P06 must carry each
 model's calibrated score and HMM-coverage thresholds into its manifest and
 High-confidence parsing tier; an HMM hit remains sequence evidence only.
 
+The archived extracellular subtype construction and the accession-preserving
+handover to the pooled core are expanded in
+[P05_EXTRACELLULAR_SUBTYPE_ARCHIVE_RECORD_2026-07-28.md](P05_EXTRACELLULAR_SUBTYPE_ARCHIVE_RECORD_2026-07-28.md).
+
 ## Reproduction And Verification Commands
 
 Run lightweight repository checks locally:

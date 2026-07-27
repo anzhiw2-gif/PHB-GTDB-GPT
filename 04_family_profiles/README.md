@@ -2,6 +2,17 @@
 
 Family seed sets, alignments, calibrated HMMs, and model-quality records will be generated here.
 
+## Current Approved Scan Set
+
+P05 calibration is complete. P06 may read only the four rows marked
+`approved_for_p06=yes` and `scan_permission=approved` in
+`manifests/p05_hmm_model_registry.tsv`: the three independently separable
+models and `extracellular_pha_depolymerase_core`. The three original
+extracellular subtype HMMs remain checksum-locked, blocked reference artifacts;
+they cannot assign mcl/scl or type-I/type-II labels during P06. See
+[the extracellular subtype archive record](../docs/P05_EXTRACELLULAR_SUBTYPE_ARCHIVE_RECORD_2026-07-28.md)
+for construction, calibration, and handover details.
+
 Current P05 planner and build scaffold live in
 [scripts/p05_plan_family_profiles.py](../scripts/p05_plan_family_profiles.py).
 
