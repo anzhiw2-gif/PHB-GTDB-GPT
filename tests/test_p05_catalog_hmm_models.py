@@ -69,6 +69,48 @@ class P05CatalogHmmModelsTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "NSEQ"):
                 catalog.catalog_hmm_models(reference, commands, models, bundles, alignments, outdir)
 
+    def test_seed_update_rows_record_implemented_profile_and_boundary_decisions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            approved_fasta = root / "approved.faa"
+            boundary_fasta = root / "boundary.faa"
+            approved_fasta.write_text(">approved|A1\nMST\n", encoding="ascii")
+            boundary_fasta.write_text(">boundary|A2\nMSA\n", encoding="ascii")
+            rows = catalog.build_seed_update_rows(
+                [
+                    {
+                        "family_category": "intracellular_mcl_pha_dep",
+                        "source_accession": "A1",
+                        "organism": "Pseudomonas testensis",
+                        "evidence_level": "E1",
+                        "profile_seed_status": "approved",
+                        "sequence_path": approved_fasta.as_posix(),
+                        "literature_support_scope": "exact-accession assay",
+                        "source_database": "UniProtKB",
+                        "notes": "approved row",
+                    },
+                    {
+                        "family_category": "intracellular_mcl_pha_dep",
+                        "source_accession": "A2",
+                        "organism": "Pseudomonas testensis",
+                        "evidence_level": "E2",
+                        "profile_seed_status": "boundary_candidate",
+                        "sequence_path": boundary_fasta.as_posix(),
+                        "literature_support_scope": "locus-only evidence",
+                        "source_database": "UniProtKB",
+                        "notes": "boundary row",
+                    },
+                ]
+            )
+
+            rows_by_accession = {row["accession"]: row for row in rows}
+            self.assertEqual(catalog.model_status("intracellular_mcl_pha_dep"), "rebuilt_pending_calibration")
+            self.assertEqual(rows_by_accession["A1"]["proposed_role"], "profile_seed")
+            self.assertEqual(rows_by_accession["A1"]["decision_status"], "implemented_in_rebuild_2026-07-27")
+            self.assertEqual(rows_by_accession["A2"]["proposed_role"], "boundary_control")
+            self.assertEqual(rows_by_accession["A2"]["decision_status"], "retained_outside_profile_2026-07-27")
+            self.assertEqual(len(rows_by_accession["A1"]["sequence_sha256"]), 64)
+
 
 if __name__ == "__main__":
     unittest.main()

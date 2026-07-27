@@ -90,15 +90,19 @@ PROPOSED_FIELDNAMES = (
 DECISION_DOCUMENT = "docs/P05_HMM_SEED_SELECTION_DECISION_2026-07-27.md"
 
 MODEL_STATUS = {
-    "archaeal_patatin_like_pha_dep": "blocked_for_rebuild",
-    "intracellular_mcl_pha_dep": "provisional_archived_needs_row_audit",
-    "intracellular_phaZ_no_lipase_box": "proposed_seed_update_pending_user_confirmation",
+    "archaeal_patatin_like_pha_dep": "rebuilt_pending_calibration",
+    "intracellular_mcl_pha_dep": "rebuilt_pending_calibration",
+    "intracellular_phaZ_no_lipase_box": "rebuilt_pending_calibration",
 }
 
 SEED_DECISIONS = {
     "archaeal_patatin_like_pha_dep": {
         "AFK21580.1": "retain_experimental_patin_like_anchor",
         "CCQ36014.1": "retain_e3_patin_like_coverage",
+        "CCQ32286.1": "add_e3_patin_like_architecture_coverage",
+        "AGN01047.1": "add_e3_patin_like_architecture_coverage",
+        "KYH27761.1": "add_e3_patin_like_architecture_coverage",
+        "ELY43313.1": "add_e3_patin_like_architecture_coverage",
         "AHB64615.1": "demote_to_non_patin_architecture_boundary",
         "AHZ23723.1": "demote_to_non_patin_architecture_boundary",
         "AJF25805.1": "demote_to_non_patin_architecture_boundary",
@@ -108,124 +112,19 @@ SEED_DECISIONS = {
     },
     "intracellular_mcl_pha_dep": {
         "Q5Y152": "retain_primary_experimental_anchor",
+        "B7UCC9": "retain_accession_level_mutant_supported_profile_seed",
+        "Q88D24": "retain_direct_experimental_profile_seed",
+        "Q9R9W3": "retain_accession_level_functional_profile_seed",
     },
     "intracellular_phaZ_no_lipase_box": {
         "O87189": "retain_experimental_profile_seed",
         "Q0K7T2": "retain_experimental_profile_seed",
         "Q71KW6": "retain_experimental_profile_seed",
         "Q92TD3": "retain_experimental_profile_seed",
+        "Q9WX79": "add_experimental_cross_genus_profile_seed",
         "Q0K4D5": "demote_to_boundary_control",
     },
 }
-
-PROPOSED_UPDATES = (
-    {
-        "family_category": "archaeal_patatin_like_pha_dep",
-        "accession": "AFK21580.1",
-        "organism": "Haloferax mediterranei ATCC 33500",
-        "evidence_level": "E1",
-        "proposed_role": "retain_profile_seed",
-        "decision_status": "user_confirmation_required",
-        "experimental_or_architecture_support": "PhaZh1/HFX_6464 experimental anchor; patatin PF01734 and N-terminal GTSGG motif",
-        "doi": "10.1128/AEM.04269-14",
-        "pmid": "25710370",
-        "source_database": "NCBI Protein",
-        "retrieval_status": "already_retrieved_in_current_bundle",
-        "sequence_sha256": "",
-        "notes": "Retain only in a coherent PhaZh1-like patatin profile.",
-    },
-    {
-        "family_category": "archaeal_patatin_like_pha_dep",
-        "accession": "CCQ36014.1",
-        "organism": "Natronomonas moolapensis 8.8.11",
-        "evidence_level": "E3",
-        "proposed_role": "retain_profile_seed",
-        "decision_status": "user_confirmation_required",
-        "experimental_or_architecture_support": "Patatin/RssA-related architecture; 323 aa; N-terminal GTSGG motif",
-        "doi": "",
-        "pmid": "",
-        "source_database": "NCBI Protein",
-        "retrieval_status": "already_retrieved_in_current_bundle",
-        "sequence_sha256": "",
-        "notes": "Coverage evidence only, not phenotype evidence.",
-    },
-    {
-        "family_category": "archaeal_patatin_like_pha_dep",
-        "accession": "CCQ32286.1",
-        "organism": "Halorhabdus tiamatea",
-        "evidence_level": "E3",
-        "proposed_role": "add_profile_seed",
-        "decision_status": "user_confirmation_required",
-        "experimental_or_architecture_support": "Patatin/RssA-related candidate; 322 aa; N-terminal GSSGG motif",
-        "doi": "",
-        "pmid": "",
-        "source_database": "NCBI Protein",
-        "retrieval_status": "not_retrieved_pending_confirmation",
-        "sequence_sha256": "",
-        "notes": "Coverage evidence only, not phenotype evidence.",
-    },
-    {
-        "family_category": "archaeal_patatin_like_pha_dep",
-        "accession": "AGN01047.1",
-        "organism": "Salinarchaeum sp. Harcht-Bsk1",
-        "evidence_level": "E3",
-        "proposed_role": "add_profile_seed",
-        "decision_status": "user_confirmation_required",
-        "experimental_or_architecture_support": "Patatin/RssA-related candidate; 321 aa; N-terminal GTSGG motif",
-        "doi": "",
-        "pmid": "",
-        "source_database": "NCBI Protein",
-        "retrieval_status": "not_retrieved_pending_confirmation",
-        "sequence_sha256": "",
-        "notes": "Coverage evidence only, not phenotype evidence.",
-    },
-    {
-        "family_category": "archaeal_patatin_like_pha_dep",
-        "accession": "KYH27761.1",
-        "organism": "Halalkalicoccus paucihalophilus",
-        "evidence_level": "E3",
-        "proposed_role": "add_profile_seed",
-        "decision_status": "user_confirmation_required",
-        "experimental_or_architecture_support": "Patatin/RssA-related candidate; 329 aa; N-terminal GTSGG motif",
-        "doi": "",
-        "pmid": "",
-        "source_database": "NCBI Protein",
-        "retrieval_status": "not_retrieved_pending_confirmation",
-        "sequence_sha256": "",
-        "notes": "Coverage evidence only, not phenotype evidence.",
-    },
-    {
-        "family_category": "archaeal_patatin_like_pha_dep",
-        "accession": "ELY43313.1",
-        "organism": "Natronorubrum tibetense",
-        "evidence_level": "E3",
-        "proposed_role": "add_profile_seed",
-        "decision_status": "user_confirmation_required",
-        "experimental_or_architecture_support": "Patatin/RssA-related candidate; 269 aa; N-terminal GTSGG motif",
-        "doi": "",
-        "pmid": "",
-        "source_database": "NCBI Protein",
-        "retrieval_status": "not_retrieved_pending_confirmation",
-        "sequence_sha256": "",
-        "notes": "Coverage evidence only, not phenotype evidence.",
-    },
-    {
-        "family_category": "intracellular_phaZ_no_lipase_box",
-        "accession": "Q9WX79",
-        "organism": "Paracoccus denitrificans",
-        "evidence_level": "E2",
-        "proposed_role": "add_profile_seed",
-        "decision_status": "user_confirmation_required",
-        "experimental_or_architecture_support": "Functional heterologous-expression PHB-granule degradation assay; PF06850/TIGR01849 family space",
-        "doi": "10.1111/j.1574-6968.2001.tb10558.x",
-        "pmid": "11267773",
-        "source_database": "UniProtKB",
-        "retrieval_status": "not_retrieved_pending_confirmation",
-        "sequence_sha256": "",
-        "notes": "Replace boundary paralog Q0K4D5 for cross-genus profile coverage.",
-    },
-)
-
 
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -306,6 +205,46 @@ def seed_decision(family: str, accession: str) -> str:
     if family == "intracellular_mcl_pha_dep":
         return "retain_only_after_accession_level_experimental_evidence_audit"
     return "current_provisional_profile_seed"
+
+
+def build_seed_update_rows(references: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Record implemented P05 seed decisions from explicit manifest admission states."""
+
+    status_to_role = {
+        "approved": ("profile_seed", "implemented_in_rebuild_2026-07-27"),
+        "boundary_candidate": ("boundary_control", "retained_outside_profile_2026-07-27"),
+        "pending_evidence_audit": ("not_profile_seed", "pending_evidence_audit"),
+    }
+    rows: list[dict[str, str]] = []
+    for reference in references:
+        family = reference.get("family_category", "")
+        status = reference.get("profile_seed_status", "")
+        decision = status_to_role.get(status)
+        if family not in MODEL_STATUS or decision is None:
+            continue
+
+        sequence_path = Path(reference.get("sequence_path", ""))
+        if not sequence_path.is_file():
+            raise ValueError(f"{family} decision row is missing its reference FASTA: {sequence_path}")
+        proposed_role, decision_status = decision
+        rows.append(
+            {
+                "family_category": family,
+                "accession": reference.get("source_accession", ""),
+                "organism": reference.get("organism", ""),
+                "evidence_level": reference.get("evidence_level", ""),
+                "proposed_role": proposed_role,
+                "decision_status": decision_status,
+                "experimental_or_architecture_support": reference.get("literature_support_scope", ""),
+                "doi": reference.get("doi", ""),
+                "pmid": reference.get("pmid", ""),
+                "source_database": reference.get("source_database", ""),
+                "retrieval_status": "retrieved_and_sha256_verified",
+                "sequence_sha256": sha256(sequence_path),
+                "notes": reference.get("notes", ""),
+            }
+        )
+    return sorted(rows, key=lambda row: (row["family_category"], row["proposed_role"], row["accession"]))
 
 
 def catalog_hmm_models(
@@ -413,7 +352,7 @@ def catalog_hmm_models(
     }
     write_tsv(outputs["model_registry"], model_rows, MODEL_FIELDNAMES)
     write_tsv(outputs["seed_registry"], seed_rows, SEED_FIELDNAMES)
-    write_tsv(outputs["proposed_updates"], list(PROPOSED_UPDATES), PROPOSED_FIELDNAMES)
+    write_tsv(outputs["proposed_updates"], build_seed_update_rows(references), PROPOSED_FIELDNAMES)
     return outputs
 
 
