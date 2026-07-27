@@ -102,6 +102,9 @@ class P06ScanFamilyProfilesTest(unittest.TestCase):
             self.assertIn("hmmsearch --noali --acc --seed 42 --cpu 1 --domtblout", rows[0]["command"])
             self.assertEqual(len(rows[0]["model_sha256"]), 64)
             self.assertTrue(rows[0]["domtblout_path"].endswith(".domtblout"))
+            self.assertTrue(rows[0]["overlong_exclusion_path"].endswith(".tsv"))
+            self.assertIn("p06_stream_proteomes.py", rows[0]["command"])
+            self.assertIn("set -o pipefail;", rows[0]["command"])
             self.assertEqual(rows[0]["command_status"], "planned_not_run")
 
     def test_build_scan_manifest_carries_calibrated_model_thresholds(self) -> None:
@@ -168,7 +171,7 @@ class P06ScanFamilyProfilesTest(unittest.TestCase):
             self.assertEqual(len(rows), 4)
             self.assertEqual(rows[0]["proteome_shard"], "chunk_000001")
             self.assertEqual(rows[0]["proteome_count"], "2")
-            self.assertIn("zcat ", rows[0]["command"])
+            self.assertIn("p06_stream_proteomes.py", rows[0]["command"])
             self.assertIn(" | hmmsearch --noali --acc --seed 42 --cpu 1 ", rows[0]["command"])
             self.assertTrue(rows[0]["command"].endswith(" -"))
             self.assertEqual(rows[1]["proteome_shard"], "chunk_000002")

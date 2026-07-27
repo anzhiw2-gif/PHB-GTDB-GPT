@@ -53,6 +53,30 @@ class P06RunFamilyProfilesTest(unittest.TestCase):
                 status_rows = list(csv.DictReader(handle, delimiter="\t"))
             self.assertEqual(status_rows[0]["status"], "skipped_existing")
 
+    def test_run_manifest_reexecutes_nonempty_output_without_a_completed_checkpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = root / "manifest.tsv"
+            domtblout = root / "raw" / "family_a.domtblout"
+            domtblout.parent.mkdir(parents=True, exist_ok=True)
+            domtblout.write_text("# incomplete output\n", encoding="utf-8")
+            completer = root / "complete_domtblout.py"
+            completer.write_text(
+                "from pathlib import Path\n"
+                "import sys\n"
+                "path = Path(sys.argv[1])\n"
+                "path.write_text('# replaced complete output\\n', encoding='utf-8')\n",
+                encoding="utf-8",
+            )
+            command = f'"{sys.executable}" "{completer}" "{domtblout}"'
+            self._write_manifest(manifest, domtblout, command)
+
+            result = runner.run_manifest(manifest, root / "status", workers=1)
+
+            self.assertEqual(result["completed"], 1)
+            self.assertEqual(result["skipped_existing"], 0)
+            self.assertEqual(domtblout.read_text(encoding="utf-8"), "# replaced complete output\n")
+
 
 if __name__ == "__main__":
     unittest.main()

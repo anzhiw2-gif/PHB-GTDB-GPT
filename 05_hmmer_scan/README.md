@@ -62,6 +62,14 @@ Only parse after the run-status table reports no `failed_exit_code` or
 `failed_empty_domtblout` records. A missing raw output is reported in the
 candidate summary and is not interpreted as biological absence.
 
+HMMER 3.4 cannot process an individual target protein longer than 100,000 aa
+with its standard comparison pipeline. The manifest therefore streams each
+proteome chunk through `p06_stream_proteomes.py`. Eligible proteins are passed
+to `hmmsearch`; every overlong target is retained in the ignored
+`overlong_protein_exclusions/<family>/<chunk>.tsv` audit table with its source
+proteome path, target identifier, length, and tool-limit reason. These records
+are not HMMER negatives and are not evidence of biological absence.
+
 The scanner uses `hmmsearch --domtblout` and keeps the raw output separate
 from derived candidate tables so later review can trace every row back to the
 exact family HMM and GTDB shard. It refuses to plan a scan unless the registry

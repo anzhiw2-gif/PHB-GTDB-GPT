@@ -12,6 +12,7 @@ import argparse
 import csv
 import hashlib
 import math
+import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Iterable
@@ -23,6 +24,8 @@ OUTPUT_CANDIDATE_TABLE_FILENAME = "p06_hmmer_candidates.tsv"
 OUTPUT_CANDIDATE_SUMMARY_FILENAME = "p06_hmmer_candidate_summary.tsv"
 RAW_DTBLOUT_DIRNAME = "raw_domtblout"
 RAW_LOG_DIRNAME = "hmmer_logs"
+OVERLONG_EXCLUSION_DIRNAME = "overlong_protein_exclusions"
+MAX_HMMSEARCH_TARGET_LENGTH = 100000
 COMMAND_STATUS = "planned_not_run"
 MODEL_REGISTRY_REQUIRED_FIELDS = (
     "family_category",
@@ -51,6 +54,7 @@ SCAN_MANIFEST_FIELDNAMES = (
     "calibrated_hmm_coverage_threshold",
     "proteome_path",
     "domtblout_path",
+    "overlong_exclusion_path",
     "main_output_path",
     "command",
     "command_status",
@@ -113,9 +117,11 @@ def build_scan_manifest(
     proteome_chunks = _chunk_proteome_paths(proteome_paths, proteomes_per_job)
     raw_domtblout_dir = outdir / RAW_DTBLOUT_DIRNAME
     raw_log_dir = outdir / RAW_LOG_DIRNAME
+    overlong_exclusion_dir = outdir / OVERLONG_EXCLUSION_DIRNAME
 
     raw_domtblout_dir.mkdir(parents=True, exist_ok=True)
     raw_log_dir.mkdir(parents=True, exist_ok=True)
+    overlong_exclusion_dir.mkdir(parents=True, exist_ok=True)
     outdir.mkdir(parents=True, exist_ok=True)
 
     manifest_rows: list[dict[str, str]] = []
@@ -123,8 +129,10 @@ def build_scan_manifest(
         family_category = hmm_path.stem
         family_raw_dir = raw_domtblout_dir / _safe_identifier(family_category)
         family_log_dir = raw_log_dir / _safe_identifier(family_category)
+        family_exclusion_dir = overlong_exclusion_dir / _safe_identifier(family_category)
         family_raw_dir.mkdir(parents=True, exist_ok=True)
         family_log_dir.mkdir(parents=True, exist_ok=True)
+        family_exclusion_dir.mkdir(parents=True, exist_ok=True)
 
         for chunk_index, proteome_chunk in enumerate(proteome_chunks, start=1):
             shard_id = (
@@ -133,6 +141,7 @@ def build_scan_manifest(
                 else f"chunk_{chunk_index:06d}"
             )
             domtblout_path = family_raw_dir / f"{_safe_identifier(shard_id)}.domtblout"
+            overlong_exclusion_path = family_exclusion_dir / f"{_safe_identifier(shard_id)}.tsv"
             main_output_path = family_log_dir / f"{_safe_identifier(shard_id)}.txt"
             manifest_rows.append(
                 {
@@ -145,12 +154,14 @@ def build_scan_manifest(
                     "calibrated_hmm_coverage_threshold": f"{hmm_coverage_threshold:.6f}",
                     "proteome_path": _unique_join(_posix_path(path) for path in proteome_chunk),
                     "domtblout_path": _posix_path(domtblout_path),
+                    "overlong_exclusion_path": _posix_path(overlong_exclusion_path),
                     "main_output_path": _posix_path(main_output_path),
                     "command": _hmmsearch_command(
                         hmm_path,
                         proteome_chunk,
                         domtblout_path,
                         main_output_path,
+                        overlong_exclusion_path,
                         cpu=cpu,
                     ),
                     "command_status": COMMAND_STATUS,
@@ -576,6 +587,7 @@ def _hmmsearch_command(
     proteome_chunk: list[Path],
     domtblout_path: Path,
     main_output_path: Path,
+    overlong_exclusion_path: Path,
     *,
     cpu: int,
 ) -> str:
@@ -585,10 +597,16 @@ def _hmmsearch_command(
         f"-o {_shell_quote(_posix_path(main_output_path))} "
         f"{_shell_quote(_posix_path(hmm_path))}"
     )
-    if len(proteome_chunk) == 1:
-        return f"{hmmsearch_part} {_shell_quote(_posix_path(proteome_chunk[0]))}"
-    zcat_inputs = " ".join(_shell_quote(_posix_path(path)) for path in proteome_chunk)
-    return f"zcat {zcat_inputs} | {hmmsearch_part} -"
+    streamer_path = Path(__file__).with_name("p06_stream_proteomes.py")
+    stream_inputs = " ".join(_shell_quote(_posix_path(path)) for path in proteome_chunk)
+    stream_part = (
+        f"{_shell_quote(_posix_path(Path(sys.executable)))} "
+        f"{_shell_quote(_posix_path(streamer_path))} "
+        f"--max-protein-length {MAX_HMMSEARCH_TARGET_LENGTH} "
+        f"--exclusion-path {_shell_quote(_posix_path(overlong_exclusion_path))} "
+        f"{stream_inputs}"
+    )
+    return f"set -o pipefail; {stream_part} | {hmmsearch_part} -"
 
 
 def _unique_join(values: Iterable[str]) -> str:

@@ -28,7 +28,6 @@ STATUS_FIELDNAMES = (
     "stderr_log_path",
     "started_at_utc",
     "finished_at_utc",
-    "command",
 )
 
 
@@ -93,8 +92,22 @@ def _status_row(
         "stderr_log_path": "" if stderr_log_path is None else stderr_log_path.as_posix(),
         "started_at_utc": started_at_utc,
         "finished_at_utc": finished_at_utc,
-        "command": job["command"],
     }
+
+
+def _completed_checkpoint_paths(status_path: Path) -> set[tuple[str, str, str]]:
+    if not status_path.is_file():
+        return set()
+    with status_path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        required = {"family_category", "proteome_shard", "domtblout_path", "status"}
+        if reader.fieldnames is None or not required.issubset(reader.fieldnames):
+            return set()
+        return {
+            (row["family_category"], row["proteome_shard"], row["domtblout_path"])
+            for row in reader
+            if row["status"] in {"completed", "skipped_existing"}
+        }
 
 
 def _execute_job(job: dict[str, str], log_dir: Path) -> dict[str, str]:
@@ -146,11 +159,13 @@ def run_manifest(manifest_path: Path, status_dir: Path, *, workers: int = 1) -> 
     jobs = _load_manifest(manifest_path)
     status_path = status_dir / STATUS_FILENAME
     stderr_log_dir = status_dir / "stderr_logs"
+    completed_checkpoints = _completed_checkpoint_paths(status_path)
     status_by_index: dict[int, dict[str, str]] = {}
     pending: list[tuple[int, dict[str, str]]] = []
     for index, job in enumerate(jobs):
         domtblout_path = Path(job["domtblout_path"])
-        if domtblout_path.is_file() and domtblout_path.stat().st_size > 0:
+        checkpoint_key = (job["family_category"], job["proteome_shard"], job["domtblout_path"])
+        if checkpoint_key in completed_checkpoints and domtblout_path.is_file() and domtblout_path.stat().st_size > 0:
             timestamp = _utc_now()
             status_by_index[index] = _status_row(
                 job,
