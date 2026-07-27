@@ -408,6 +408,8 @@ def build_calibration_command_manifest(
     target_dir = calibration_dir / "targets"
     raw_dir = calibration_dir / "raw_domtblout"
     log_dir = calibration_dir / "hmmer_logs"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    log_dir.mkdir(parents=True, exist_ok=True)
     command_rows: list[dict[str, str]] = []
     for family, model in sorted(models.items()):
         family_rows = sorted(rows_by_family[family], key=lambda row: row["control_id"])

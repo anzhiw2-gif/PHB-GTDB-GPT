@@ -180,6 +180,8 @@ class P05HmmCalibrationTest(unittest.TestCase):
             self.assertTrue(all(row["command_status"] == "planned_not_run" for row in rows))
             first_fasta = Path(rows[0]["target_fasta_path"])
             self.assertIn(">family_a|cross_family_challenge|family_b|B1", first_fasta.read_text(encoding="ascii"))
+            self.assertTrue(Path(rows[0]["domtblout_path"]).parent.is_dir())
+            self.assertTrue(Path(rows[0]["main_output_path"]).parent.is_dir())
 
     def test_calibration_commands_reject_control_panel_model_hash_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
