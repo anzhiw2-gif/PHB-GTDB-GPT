@@ -13,6 +13,11 @@ GTDB hit.
 P06 remains blocked until each of the six profiles has a documented calibration
 decision and the model registry is explicitly updated after review.
 
+The calibration panel's `sequence_sha256` is computed from the normalized
+amino-acid residue string only. FASTA headers, line wrapping, and CRLF/LF
+differences therefore cannot create a false cross-host provenance mismatch;
+the raw HMM, bundle, and alignment checksums remain byte-level artifact hashes.
+
 ## Input Contract
 
 The tracked

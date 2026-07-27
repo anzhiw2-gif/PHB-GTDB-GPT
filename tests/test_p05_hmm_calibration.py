@@ -148,6 +148,20 @@ class P05HmmCalibrationTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "cross-family challenge"):
                 calibration.build_control_panel(reference_manifest, seed_registry, model_registry)
 
+    def test_control_panel_sequence_hash_is_stable_across_fasta_line_endings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            reference_manifest, seed_registry, model_registry = self._build_fixture(root)
+            (root / "B1.faa").write_bytes(b">seed|B1\nMSTNPKPQRIT\n")
+            first_rows = calibration.build_control_panel(reference_manifest, seed_registry, model_registry)
+            first_hash = next(row["sequence_sha256"] for row in first_rows if row["source_accession"] == "B1")
+            (root / "B1.faa").write_bytes(b">seed|B1\r\nMSTNPKPQRIT\r\n")
+
+            second_rows = calibration.build_control_panel(reference_manifest, seed_registry, model_registry)
+            second_hash = next(row["sequence_sha256"] for row in second_rows if row["source_accession"] == "B1")
+
+            self.assertEqual(first_hash, second_hash)
+
     def test_calibration_commands_materialize_checksum_locked_control_fastas(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -93,6 +93,12 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _sequence_residue_sha256(path: Path) -> str:
+    """Hash normalized amino-acid residues, independent of FASTA formatting."""
+
+    return hashlib.sha256(_read_single_fasta_sequence(path).encode("ascii")).hexdigest()
+
+
 def _load_tsv(path: Path, required_fields: tuple[str, ...]) -> list[dict[str, str]]:
     if not path.is_file():
         raise FileNotFoundError(f"Required calibration input is missing: {path}")
@@ -182,7 +188,7 @@ def _control_row(
         "evidence_level": reference["evidence_level"],
         "profile_seed_status": reference["profile_seed_status"],
         "sequence_path": sequence_path.as_posix(),
-        "sequence_sha256": _sha256(sequence_path),
+        "sequence_sha256": _sequence_residue_sha256(sequence_path),
         "source_database": reference["source_database"],
         "source_release": reference["source_release"],
         "source_version": reference["source_version"],
@@ -327,7 +333,7 @@ def _load_control_panel(path: Path) -> list[dict[str, str]]:
         sequence_path = Path(row["sequence_path"])
         if not sequence_path.is_file():
             raise FileNotFoundError(f"{path}:{line_number} control sequence is missing: {sequence_path}")
-        observed_hash = _sha256(sequence_path)
+        observed_hash = _sequence_residue_sha256(sequence_path)
         if observed_hash != row["sequence_sha256"].lower():
             raise ValueError(
                 f"{path}:{line_number} control sequence SHA256 mismatch for {sequence_path}: "
