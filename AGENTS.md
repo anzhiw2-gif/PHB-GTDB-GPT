@@ -26,10 +26,10 @@ PHB/PHA degradation phenotype.
 
 - P01: complete
 - P02: complete
-- P03: translation-fix rerun in progress on T141
+- P03: translation-fix rerun complete on T141; QC and manifest regenerated
 - P04: complete; P05 seed reinforcement recorded
-- P05: in progress; six active family HMM artifacts exist as ignored generated outputs
-- P06: planner/parser ready; full scan pending repaired P03 proteomes
+- P05: in progress; six provisional local HMM artifacts are checksum-cataloged, with two family revisions pending confirmation
+- P06: planner/parser ready; full scan blocked until models are user-confirmed, calibration-decided, and registry-approved
 
 ## Verified Outputs
 
@@ -38,7 +38,7 @@ PHB/PHA degradation phenotype.
 - The original P03 full-proteome run reached the expected file count, but the
   FAA protein records were later found to contain empty translations. Do not
   use the old FAA files for HMMER scanning.
-- A P03 translation-fix rerun is active on T141 as of 2026-07-26. The fix uses
+- The P03 translation-fix rerun completed on T141 on 2026-07-27. The fix uses
   `gene.translate(include_stop=False)` when Pyrodigal exposes translation by
   method, rejects empty protein translations, and is monitored by
   `scripts/p03_monitor_translation_fix.py`.
@@ -50,8 +50,10 @@ PHB/PHA degradation phenotype.
 - P03 run summary on T141:
   - genomes predicted: `199,923`
   - predicted genes: `615,969,593`
-  - current acceptance status: pending completion of the translation-fix rerun
-    and regenerated QC/manifest checks
+  - current acceptance status: complete; `03_gtdb_proteomes/qc/p03_prediction_qc.tsv`
+    and `03_gtdb_proteomes/manifests/p03_prediction_manifest.tsv` were
+    regenerated on 2026-07-27 and the rewritten FAA sample checks show
+    nonzero residues
 - P04 outputs:
   - `01_reference_library/manifests/reference_library.seed_manifest.tsv`
   - `01_reference_library/reference_library.normalized.tsv`
@@ -84,12 +86,28 @@ PHB/PHA degradation phenotype.
   - `04_family_profiles/seed_bundles/`
   - `04_family_profiles/alignments/`
   - `04_family_profiles/hmms/`
+- P05 Git-tracked compact model provenance:
+  - `04_family_profiles/manifests/p05_hmm_model_registry.tsv`
+  - `04_family_profiles/manifests/p05_hmm_seed_registry.tsv`
+  - `04_family_profiles/manifests/p05_hmm_proposed_seed_updates.tsv`
+  - `docs/P05_HMM_MODEL_CATALOG.md`
+  - `scripts/p05_catalog_hmm_models.py`
+- The six current HMMs are provisional. A 2026-07-27 seed review found that
+  the current archaeal patatin-like set mixes the experimentally supported
+  PhaZh1-like RssA branch with longer non-patatin annotation records. Do not
+  launch a new P06 scan until the revised seed set is approved, the models are
+  rebuilt or explicitly retained, and their SHA256 values are locked.
+- The seed-selection decision is recorded in
+  `docs/P05_HMM_SEED_SELECTION_DECISION_2026-07-27.md`.
 - P06 tracked scaffold:
   - `scripts/p06_scan_family_profiles.py`
   - `tests/test_p06_scan_family_profiles.py`
   - `05_hmmer_scan/README.md`
 - P06 raw HMMER outputs and candidate tables stay ignored until compact
   summaries are accepted.
+- P06 planning outputs written before the model-approval gate on 2026-07-27 are not valid for a new scan:
+  - `05_hmmer_scan/p06_hmmer_scan_manifest.tsv`
+  - `05_hmmer_scan/p06_hmmer_scan_summary.tsv`
 
 ## Key Files
 
@@ -105,8 +123,10 @@ PHB/PHA degradation phenotype.
 - `scripts/p03_monitor_translation_fix.py`
 - `scripts/p05_plan_family_profiles.py`
 - `scripts/p05_family_profile_commands.py`
+- `scripts/p05_catalog_hmm_models.py`
 - `scripts/p06_scan_family_profiles.py`
 - `docs/P05_FAMILY_PROFILE_PLAN.md`
+- `docs/P05_HMM_MODEL_CATALOG.md`
 
 ## Operating Rules
 
@@ -156,6 +176,20 @@ Every step and operation must have biological support.
   annotation-supported E3 rows are acceptable when the accession, organism,
   and support scope are explicit. Record DOI, PMID, PMCID, or a stable
   publisher/preprint URL when available.
+- Bacterial HMM profile seeds require experimental support tied to the exact
+  accession: direct biochemical activity, purified-protein assay, or an
+  unambiguous knockout/complementation or physiological experiment. Annotation-
+  only E3 bacterial records are not profile seeds.
+- Archaeal E3 records may be used for family coverage when direct experiments
+  are sparse, but their accession, organism, architecture, and exact support
+  scope must be explicit. E3 is not phenotype evidence.
+- `intracellular_mcl_pha_dep` is expected to be Pseudomonas-enriched as an
+  intrinsic biological property of the family. Do not interpret this pattern
+  as seed-selection bias or force artificial cross-genus balance.
+- HMM seed inclusion also requires architecture coherence. For
+  `archaeal_patatin_like_pha_dep`, retain the PhaZh1-like patatin architecture
+  and demote conflicting PHB-synthase-like, HHH, PKD, or AxeA-like records to
+  boundary candidates.
 - For GTDB-derived sequences, record the GTDB release, assembly accession,
   protein identifier, genome path or manifest reference, and any transformation
   applied by the workflow.
@@ -183,6 +217,9 @@ python scripts/validate_repository.py
 - For stage-specific code, also run the narrowest relevant unit tests.
 - If compute-heavy validation must run on T141, document the exact command,
   environment, expected outputs, and why it was not run locally.
+- P06 planning must read `p05_hmm_model_registry.tsv`; it may select only
+  rows with `approved_for_p06=yes` and `scan_permission=approved`, and must
+  verify the local HMM SHA256 before writing a scan-manifest row.
 
 ### Documentation And Provenance
 

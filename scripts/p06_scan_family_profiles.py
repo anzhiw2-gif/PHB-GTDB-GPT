@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import math
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -23,6 +24,13 @@ OUTPUT_CANDIDATE_SUMMARY_FILENAME = "p06_hmmer_candidate_summary.tsv"
 RAW_DTBLOUT_DIRNAME = "raw_domtblout"
 RAW_LOG_DIRNAME = "hmmer_logs"
 COMMAND_STATUS = "planned_not_run"
+MODEL_REGISTRY_REQUIRED_FIELDS = (
+    "family_category",
+    "approved_for_p06",
+    "scan_permission",
+    "model_path",
+    "model_sha256",
+)
 PROTEOME_FASTA_SUFFIXES = (
     ".faa.gz",
     ".fa.gz",
@@ -37,6 +45,7 @@ SCAN_MANIFEST_FIELDNAMES = (
     "proteome_shard",
     "proteome_count",
     "hmm_path",
+    "model_sha256",
     "proteome_path",
     "domtblout_path",
     "main_output_path",
@@ -85,15 +94,16 @@ def build_scan_manifest(
     proteome_dir: Path,
     outdir: Path,
     *,
+    model_registry: Path,
     cpu: int = 1,
     proteomes_per_job: int = 1,
 ) -> dict[str, Path]:
-    """Write a deterministic hmmsearch manifest for all family/shard pairs."""
+    """Write a deterministic hmmsearch manifest for checksum-locked profiles only."""
 
     if proteomes_per_job < 1:
         raise ValueError("proteomes_per_job must be at least 1")
 
-    hmm_paths = discover_hmm_paths(hmm_dir)
+    approved_models = load_approved_hmm_models(model_registry, hmm_dir)
     proteome_paths = discover_proteome_paths(proteome_dir)
     proteome_chunks = _chunk_proteome_paths(proteome_paths, proteomes_per_job)
     raw_domtblout_dir = outdir / RAW_DTBLOUT_DIRNAME
@@ -104,7 +114,7 @@ def build_scan_manifest(
     outdir.mkdir(parents=True, exist_ok=True)
 
     manifest_rows: list[dict[str, str]] = []
-    for hmm_path in hmm_paths:
+    for hmm_path, model_sha256 in approved_models:
         family_category = hmm_path.stem
         family_raw_dir = raw_domtblout_dir / _safe_identifier(family_category)
         family_log_dir = raw_log_dir / _safe_identifier(family_category)
@@ -125,6 +135,7 @@ def build_scan_manifest(
                     "proteome_shard": shard_id,
                     "proteome_count": str(len(proteome_chunk)),
                     "hmm_path": _posix_path(hmm_path),
+                    "model_sha256": model_sha256,
                     "proteome_path": _unique_join(_posix_path(path) for path in proteome_chunk),
                     "domtblout_path": _posix_path(domtblout_path),
                     "main_output_path": _posix_path(main_output_path),
@@ -137,7 +148,7 @@ def build_scan_manifest(
                     ),
                     "command_status": COMMAND_STATUS,
                     "notes": (
-                        "Prepared from the saved P05 HMM library; hmmsearch was not run. "
+                        "Prepared from the checksum-locked approved P05 HMM registry; hmmsearch was not run. "
                         "Raw domtblout and logs stay separate from derived candidate tables."
                     ),
                 }
@@ -305,6 +316,57 @@ def load_scan_manifest(path: Path) -> list[dict[str, str]]:
     return rows
 
 
+def load_approved_hmm_models(model_registry: Path, hmm_dir: Path) -> list[tuple[Path, str]]:
+    """Return only registry-approved HMMs after exact path and checksum checks."""
+
+    if not model_registry.is_file():
+        raise FileNotFoundError(f"P05 model registry not found: {model_registry}")
+    if not hmm_dir.is_dir():
+        raise FileNotFoundError(f"HMM directory not found: {hmm_dir}")
+
+    with model_registry.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        if reader.fieldnames is None:
+            raise ValueError(f"{model_registry} is missing a tabular header")
+        missing_columns = [field for field in MODEL_REGISTRY_REQUIRED_FIELDS if field not in reader.fieldnames]
+        if missing_columns:
+            raise ValueError(f"{model_registry} is missing required columns: {', '.join(missing_columns)}")
+        registry_rows = [{key: (value or "").strip() for key, value in row.items()} for row in reader]
+
+    approved_rows = [
+        row
+        for row in registry_rows
+        if row["approved_for_p06"].lower() == "yes" and row["scan_permission"].lower() == "approved"
+    ]
+    if not approved_rows:
+        raise ValueError(
+            f"{model_registry} has no P06-approved HMMs. Confirm the revised seed set, rebuild or retain models, "
+            "record SHA256 values, and complete the calibration decision before planning a scan."
+        )
+
+    models: list[tuple[Path, str]] = []
+    seen_families: set[str] = set()
+    for line_number, row in enumerate(approved_rows, start=2):
+        family = row["family_category"]
+        expected_hash = row["model_sha256"].lower()
+        model_path = Path(row["model_path"])
+        if family in seen_families:
+            raise ValueError(f"{model_registry}:{line_number} has duplicate approved family {family!r}")
+        if not model_path.is_file():
+            raise FileNotFoundError(f"{model_registry}:{line_number} approved HMM is missing: {model_path}")
+        if model_path.parent.resolve() != hmm_dir.resolve():
+            raise ValueError(f"{model_registry}:{line_number} approved HMM is outside --hmm-dir: {model_path}")
+        observed_hash = _sha256(model_path)
+        if observed_hash != expected_hash:
+            raise ValueError(
+                f"{model_registry}:{line_number} checksum mismatch for {model_path}: "
+                f"expected {expected_hash}, observed {observed_hash}"
+            )
+        seen_families.add(family)
+        models.append((model_path, expected_hash))
+    return sorted(models, key=lambda item: item[0].as_posix())
+
+
 def load_domtblout_rows(path: Path) -> list[dict[str, str]]:
     """Parse one HMMER domtblout file into rows."""
 
@@ -444,6 +506,14 @@ def discover_hmm_paths(hmm_dir: Path) -> list[Path]:
     return sorted(path for path in hmm_dir.iterdir() if path.is_file() and path.suffix == ".hmm")
 
 
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def discover_proteome_paths(proteome_dir: Path) -> list[Path]:
     """Discover GTDB proteome shards in deterministic order."""
 
@@ -549,6 +619,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Directory containing GTDB proteome shard FASTA files",
     )
     parser.add_argument(
+        "--model-registry",
+        type=Path,
+        default=Path("04_family_profiles/manifests/p05_hmm_model_registry.tsv"),
+        help="Checksum-locked P05 model registry; only rows approved for P06 are accepted",
+    )
+    parser.add_argument(
         "--outdir",
         type=Path,
         default=Path("05_hmmer_scan"),
@@ -586,6 +662,7 @@ def main(argv: list[str] | None = None) -> int:
         args.hmm_dir,
         args.proteome_dir,
         args.outdir,
+        model_registry=args.model_registry,
         proteomes_per_job=args.proteomes_per_job,
     )
     print(f"Scan manifest written: {outputs['manifest']}")

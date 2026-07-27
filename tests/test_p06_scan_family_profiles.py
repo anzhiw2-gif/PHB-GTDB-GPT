@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import tempfile
 from pathlib import Path
 import unittest
@@ -9,7 +10,7 @@ from scripts import p06_scan_family_profiles as p06
 
 
 class P06ScanFamilyProfilesTest(unittest.TestCase):
-    def _write_inputs(self, root: Path) -> tuple[Path, Path]:
+    def _write_inputs(self, root: Path) -> tuple[Path, Path, Path]:
         hmm_dir = root / "04_family_profiles" / "hmms"
         proteome_dir = root / "03_gtdb_proteomes" / "faa"
         hmm_dir.mkdir(parents=True, exist_ok=True)
@@ -19,7 +20,33 @@ class P06ScanFamilyProfilesTest(unittest.TestCase):
         (hmm_dir / "intracellular_phaZ_no_lipase_box.hmm").write_text("HMMER3/f dummy\n", encoding="utf-8")
         (proteome_dir / "GCA_000001.faa").write_text(">prot1\nMMMMMMMMMM\n", encoding="utf-8")
         (proteome_dir / "GCA_000002.faa").write_text(">prot2\nMMMMMMMMMMMM\n", encoding="utf-8")
-        return hmm_dir, proteome_dir
+        registry = root / "04_family_profiles" / "manifests" / "p05_hmm_model_registry.tsv"
+        registry.parent.mkdir(parents=True, exist_ok=True)
+        self._write_model_registry(
+            registry,
+            [hmm_dir / "phaZ7_like.hmm", hmm_dir / "intracellular_phaZ_no_lipase_box.hmm"],
+        )
+        return hmm_dir, proteome_dir, registry
+
+    def _write_model_registry(self, registry: Path, hmm_paths: list[Path], *, approved: bool = True) -> None:
+        with registry.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(
+                handle,
+                fieldnames=["family_category", "approved_for_p06", "scan_permission", "model_path", "model_sha256"],
+                delimiter="\t",
+                lineterminator="\n",
+            )
+            writer.writeheader()
+            for hmm_path in hmm_paths:
+                writer.writerow(
+                    {
+                        "family_category": hmm_path.stem,
+                        "approved_for_p06": "yes" if approved else "no",
+                        "scan_permission": "approved" if approved else "blocked",
+                        "model_path": hmm_path.as_posix(),
+                        "model_sha256": hashlib.sha256(hmm_path.read_bytes()).hexdigest(),
+                    }
+                )
 
     def _write_domtblout(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -39,9 +66,9 @@ class P06ScanFamilyProfilesTest(unittest.TestCase):
     def test_build_scan_manifest_writes_deterministic_command_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            hmm_dir, proteome_dir = self._write_inputs(root)
+            hmm_dir, proteome_dir, registry = self._write_inputs(root)
 
-            outputs = p06.build_scan_manifest(hmm_dir, proteome_dir, root / "05_hmmer_scan")
+            outputs = p06.build_scan_manifest(hmm_dir, proteome_dir, root / "05_hmmer_scan", model_registry=registry)
 
             self.assertTrue(outputs["manifest"].is_file())
             self.assertTrue(outputs["summary"].is_file())
@@ -55,6 +82,7 @@ class P06ScanFamilyProfilesTest(unittest.TestCase):
                 ["intracellular_phaZ_no_lipase_box", "intracellular_phaZ_no_lipase_box", "phaZ7_like", "phaZ7_like"],
             )
             self.assertIn("hmmsearch --noali --acc --seed 42 --cpu 1 --domtblout", rows[0]["command"])
+            self.assertEqual(len(rows[0]["model_sha256"]), 64)
             self.assertTrue(rows[0]["domtblout_path"].endswith(".domtblout"))
             self.assertEqual(rows[0]["command_status"], "planned_not_run")
 
@@ -70,7 +98,11 @@ class P06ScanFamilyProfilesTest(unittest.TestCase):
             (hmm_dir / "intracellular_mcl_pha_dep.hmm").write_text("HMMER3/f dummy\n", encoding="utf-8")
             (nested_dir / "GCF_001234567.1.faa.gz").write_text(">prot1\nMMMM\n", encoding="utf-8")
 
-            outputs = p06.build_scan_manifest(hmm_dir, proteome_dir, root / "05_hmmer_scan")
+            registry = root / "04_family_profiles" / "manifests" / "p05_hmm_model_registry.tsv"
+            registry.parent.mkdir(parents=True, exist_ok=True)
+            self._write_model_registry(registry, [hmm_dir / "intracellular_mcl_pha_dep.hmm"])
+
+            outputs = p06.build_scan_manifest(hmm_dir, proteome_dir, root / "05_hmmer_scan", model_registry=registry)
 
             with outputs["manifest"].open("r", encoding="utf-8", newline="") as handle:
                 rows = list(csv.DictReader(handle, delimiter="\t"))
@@ -83,13 +115,14 @@ class P06ScanFamilyProfilesTest(unittest.TestCase):
     def test_build_scan_manifest_can_group_proteomes_into_streamed_chunks(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            hmm_dir, proteome_dir = self._write_inputs(root)
+            hmm_dir, proteome_dir, registry = self._write_inputs(root)
             (proteome_dir / "GCA_000003.faa.gz").write_text(">prot3\nMMMMMMMM\n", encoding="utf-8")
 
             outputs = p06.build_scan_manifest(
                 hmm_dir,
                 proteome_dir,
                 root / "05_hmmer_scan",
+                model_registry=registry,
                 proteomes_per_job=2,
             )
 
@@ -108,8 +141,8 @@ class P06ScanFamilyProfilesTest(unittest.TestCase):
     def test_parse_scan_manifest_classifies_candidates_from_domtblout(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            hmm_dir, proteome_dir = self._write_inputs(root)
-            outputs = p06.build_scan_manifest(hmm_dir, proteome_dir, root / "05_hmmer_scan")
+            hmm_dir, proteome_dir, registry = self._write_inputs(root)
+            outputs = p06.build_scan_manifest(hmm_dir, proteome_dir, root / "05_hmmer_scan", model_registry=registry)
             manifest_path = outputs["manifest"]
 
             with manifest_path.open("r", encoding="utf-8", newline="") as handle:
@@ -143,6 +176,20 @@ class P06ScanFamilyProfilesTest(unittest.TestCase):
             self.assertIn({"kind": "tier", "name": "High-confidence", "count": "4"}, summary_rows)
             self.assertIn({"kind": "tier", "name": "Review", "count": "4"}, summary_rows)
             self.assertIn({"kind": "tier", "name": "Rejected", "count": "4"}, summary_rows)
+
+    def test_build_scan_manifest_rejects_unapproved_or_changed_models(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hmm_dir, proteome_dir, registry = self._write_inputs(root)
+            self._write_model_registry(registry, [hmm_dir / "phaZ7_like.hmm"], approved=False)
+
+            with self.assertRaisesRegex(ValueError, "no P06-approved HMMs"):
+                p06.build_scan_manifest(hmm_dir, proteome_dir, root / "05_hmmer_scan", model_registry=registry)
+
+            self._write_model_registry(registry, [hmm_dir / "phaZ7_like.hmm"])
+            (hmm_dir / "phaZ7_like.hmm").write_text("changed model\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "checksum mismatch"):
+                p06.build_scan_manifest(hmm_dir, proteome_dir, root / "05_hmmer_scan", model_registry=registry)
 
 
 if __name__ == "__main__":

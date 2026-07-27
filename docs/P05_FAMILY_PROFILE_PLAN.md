@@ -25,6 +25,19 @@ to 8 independent UniProtKB accessions.
 For the keep/defer split and its literature basis, see
 [P05 family classification priorities](P05_FAMILY_CLASSIFICATION_PRIORITIES.md).
 
+The detailed 2026-07-27 seed review is recorded in
+[P05 HMM seed selection decision](P05_HMM_SEED_SELECTION_DECISION_2026-07-27.md).
+That review supersedes the earlier assumption that all eight current archaeal
+rows are suitable members of one patatin-like alignment. It also records the
+rule that bacterial profile seeds require experimental support, while
+accessioned archaeal E3 rows may be used for explicitly labelled coverage.
+
+The GitHub-trackable model metadata, current 38-seed registry, proposed seed
+updates, local-artifact checksums, and P06 approval gate are recorded in
+[P05 HMM model catalog](P05_HMM_MODEL_CATALOG.md). The raw HMM, MAFFT
+alignment, and seed-bundle artifacts remain machine-local; the catalog records
+their SHA256 values instead of committing the generated files.
+
 That means the first P05 output is a planning queue:
 
 - HMM-ready families
@@ -39,6 +52,10 @@ That means the first P05 output is a planning queue:
 - `E1` and `E2` rows count as qualifying evidence for bacteria
 - archaeal E3 annotation-supported rows can also count as qualifying evidence
 - `Excluded` rows stay out of profile building
+
+The qualifying-row threshold does not override architecture coherence. Rows
+that pass the accession/evidence threshold but fail the family architecture
+check are boundary candidates and must not be used to inflate a custom HMM.
 
 ## Planned Outputs
 

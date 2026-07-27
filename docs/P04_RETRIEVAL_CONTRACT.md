@@ -61,6 +61,12 @@ core PHB set.
 Do not admit annotation-only `E3` bacterial rows as seeds. Store them as
 tracked candidates or excluded rows when they are useful for boundary review.
 
+For HMM construction, "experimental support" means that the exact bacterial
+accession is tied to direct biochemical activity, purification/assay of the
+gene product, or an unambiguous knockout/complementation or physiological
+experiment. A cloned locus, product name, or homology annotation alone is not
+enough for a bacterial profile seed.
+
 ### Archaeal literature-supported library
 
 Use this library for archaeal PHB/PHA depolymerase-related seeds when the
@@ -87,6 +93,18 @@ Use NCBI Protein accession `AFK21580.1` as the archival protein accession and
 UniProtKB `I3RBH0` as a secondary cross-check. Its patatin-like architecture
 (`PF01734`, `IPR002641`, `IPR016035`) should not be merged with the bacterial
 `PF10503`/`TIGR01840`, `TIGR01849`, or `TIGR02240` families.
+
+Before rebuilding the archaeal patatin-like model, require a coherent
+patatin-like architecture and conserved N-terminal `GxSxG` evidence for the
+coverage rows. Automatic archaeal records with PHB-synthase-like, HHH, PKD,
+or AxeA-related architecture are boundary candidates rather than seeds for
+this model, even when their product name says "PHB depolymerase".
+
+The `intracellular_mcl_pha_dep` family is expected to be Pseudomonas-enriched
+because intracellular mcl-PHA mobilization has been experimentally described
+primarily in *Pseudomonas*. This is an intrinsic family property, not a reason
+to force artificial cross-genus seed balance. The result must still be labelled
+as sequence/family evidence, not phenotype proof.
 
 ## Retrieval Interfaces
 

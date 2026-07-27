@@ -18,6 +18,9 @@
 04_family_profiles/manifests/*
 !04_family_profiles/manifests/p05_family_keep_now.tsv
 !04_family_profiles/manifests/p05_family_deferred.tsv
+!04_family_profiles/manifests/p05_hmm_model_registry.tsv
+!04_family_profiles/manifests/p05_hmm_seed_registry.tsv
+!04_family_profiles/manifests/p05_hmm_proposed_seed_updates.tsv
 05_hmmer_scan/raw_hits/
 05_hmmer_scan/filtered_hits/
 05_hmmer_scan/candidates/
