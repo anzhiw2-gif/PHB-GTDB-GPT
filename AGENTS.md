@@ -29,7 +29,7 @@ PHB/PHA degradation phenotype.
 - P03: translation-fix rerun complete on T141; QC and manifest regenerated
 - P04: complete; seed-admission and boundary-control decisions are recorded
 - P05: complete; four scan models are checksum-locked and calibration-approved. The three extracellular subtype artifacts remain blocked and are replaced for P06 entry by `extracellular_pha_depolymerase_core`
-- P06: four-model GTDB R232 full scan is running in isolated T141 worktree `/home/data/haoyu/PHB-GTDB-GPT-p06-r8-20260728` from commit `80991a7`; it uses 200-proteome chunks, 16 resumable workers, approved-model SHA256 checks, and explicit HMMER-length-limit audit tables
+- P06: complete for the four-model GTDB R232 HMMER scan and candidate parsing in isolated T141 worktree `/home/data/haoyu/PHB-GTDB-GPT-p06-r8-20260728` from commit `80991a7`; 4,000/4,000 raw jobs are accepted and parsing found `missing_domtblout=0`. See `docs/P06_COMPLETION_2026-07-28.md`. P07 interpretation has not started.
 
 ## Verified Outputs
 
@@ -142,10 +142,11 @@ PHB/PHA degradation phenotype.
   - `tests/test_p06_run_family_profiles.py`
 - P06 launch record:
   - `docs/P06_LAUNCH_2026-07-28.md`
-  - 4,000 planned model-chunk jobs (four approved models x 1,000 chunks); live raw outputs, checkpoints, and overlong-target audit tables remain machine-local in r8
+  - `docs/P06_COMPLETION_2026-07-28.md`
+  - P06 accepted 4,000 model-chunk jobs (four approved models x 1,000 chunks); raw outputs, candidate tables, checkpoints, and overlong-target audit tables remain machine-local in r8
   - `05_hmmer_scan/README.md`
-- P06 raw HMMER outputs and candidate tables stay ignored until compact
-  summaries are accepted.
+- P06 raw HMMER outputs and candidate tables stay ignored after compact
+  summaries are accepted; retain them machine-local for P07 traceability.
 - P06 planning outputs written before the model-approval gate on 2026-07-27 are not valid for a new scan:
   - `05_hmmer_scan/p06_hmmer_scan_manifest.tsv`
   - `05_hmmer_scan/p06_hmmer_scan_summary.tsv`
