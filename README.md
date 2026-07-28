@@ -30,11 +30,12 @@
 - [docs/DATA_PROVENANCE.md](docs/DATA_PROVENANCE.md) 记录 P01 的审计、复制和 manifest 轨迹
 - [docs/P02_BENCHMARK_DECISION.md](docs/P02_BENCHMARK_DECISION.md) 记录 P02 的 benchmark 结果和预测器锁定
 - [docs/PREDICTION_POLICY.md](docs/PREDICTION_POLICY.md) 记录 P03 使用的生产预测策略
-- [docs/HANDOFF_2026-07-26_P05_P06_P03_TRANSLATION_FIX.md](docs/HANDOFF_2026-07-26_P05_P06_P03_TRANSLATION_FIX.md) 记录 P05/P06 当前状态和 P03 翻译修复重跑
+- [docs/HANDOFF_2026-07-26_P05_P06_P03_TRANSLATION_FIX.md](docs/HANDOFF_2026-07-26_P05_P06_P03_TRANSLATION_FIX.md) 保留 2026-07-26 的 P05/P06/P03 历史交接状态
 - [docs/P05_HMM_SEED_SELECTION_DECISION_2026-07-27.md](docs/P05_HMM_SEED_SELECTION_DECISION_2026-07-27.md) 固化细菌/古菌 HMM 种子证据规则和家族优化决定
 - [docs/P05_HMM_MODEL_CATALOG.md](docs/P05_HMM_MODEL_CATALOG.md) 发布 GitHub 可追溯的 HMM 元数据、种子登记和 P06 校验门控
 - [docs/P05_EXTRACELLULAR_SUBTYPE_ARCHIVE_RECORD_2026-07-28.md](docs/P05_EXTRACELLULAR_SUBTYPE_ARCHIVE_RECORD_2026-07-28.md) 记录三个胞外子模型、校准边界和 pooled core 的 P06 交接
 - [docs/P06_LAUNCH_2026-07-28.md](docs/P06_LAUNCH_2026-07-28.md) 固化四个批准 HMM 的 P06 正式扫描范围、校验、长度限制审计和断点恢复规则
+- [docs/P06_COMPLETION_2026-07-28.md](docs/P06_COMPLETION_2026-07-28.md) 记录 P06 四模型完整扫描、候选解析和技术验收结果
 
 主要脚本在 `scripts/`：
 
@@ -96,7 +97,7 @@ cd /home/data/haoyu/PHB-GTDB-GPT
 /home/data/haoyu/miniconda3/envs/phb_gtdb/bin/python scripts/p03_monitor_translation_fix.py --once
 ```
 
-当前护栏：P03 翻译修复已完成并通过 QC；但 P06 的新扫描仍被冻结，直到确认优化种子、重建或明确保留模型、记录并校验 HMM/bundle/alignment SHA256、完成校准阈值决定，并由 model registry 将模型标记为 `approved_for_p06=yes`。原始 domtblout 和候选表仍要等 compact summaries 审核后再纳入 Git。
+当前护栏：P03 翻译修复及 P06 四模型扫描/解析均已验收。P06 的全量 `domtblout`、候选表、状态日志和超长目标审计表保持 machine-local 且被 Git 忽略；紧凑验收记录见 `docs/P06_COMPLETION_2026-07-28.md`。P07 尚未开始，后续不得将 HMM 命中直接表述为 PHB/PHA 降解表型。
 
 ## 运行前提
 

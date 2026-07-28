@@ -12,6 +12,12 @@ in the P05 registry: `archaeal_patatin_like_pha_dep`,
 sequence candidates only; it must not assign mcl/scl or type-I/type-II labels.
 See [P05 HMM model catalog](../docs/P05_HMM_MODEL_CATALOG.md).
 
+The recorded four-model GTDB-wide scan and candidate parsing completed on
+2026-07-28 in the isolated T141 r8 worktree. Its accepted counts, execution
+revision, length-limit audit boundary, and P07 handoff are in
+[P06 completion record](../docs/P06_COMPLETION_2026-07-28.md). Do not rerun or
+replace that accepted output without a new versioned scan record.
+
 ## Expected Outputs
 
 Under `05_hmmer_scan/`, the scan stage writes:

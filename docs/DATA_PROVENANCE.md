@@ -104,6 +104,14 @@ HMMER output. They do not establish PHB/PHA degradation phenotypes for GTDB
 homologs. Human review and the approved model registry, rather than a raw
 calculation table alone, authorize the four-model P06 scan.
 
+The approved four-model P06 scan was completed and parsed on 2026-07-28 in
+isolated T141 worktree `/home/data/haoyu/PHB-GTDB-GPT-p06-r8-20260728` from
+source revision `80991a7`. The compact execution and acceptance record,
+including 4,000 accepted model-chunk jobs and `missing_domtblout=0`, is
+`docs/P06_COMPLETION_2026-07-28.md`. Full `domtblout`, candidate tables,
+checkpoints, logs, and overlong-target audit tables remain machine-local;
+their HMMER sequence evidence is not a phenotype assertion.
+
 The consolidated construction, artifact-verification, calibration, and P06
 gate record is `docs/P05_HMM_CONSTRUCTION_VALIDATION_RECORD_2026-07-27.md`.
 The archived extracellular subtype construction, calibration failure, and

@@ -36,6 +36,10 @@
 05_hmmer_scan/raw_domtblout/
 05_hmmer_scan/hmmer_logs/
 05_hmmer_scan/run_logs/
+05_hmmer_scan/run_status/
+05_hmmer_scan/overlong_protein_exclusions/
+05_hmmer_scan_smoke_*/
+05_hmmer_scan_length_smoke_*/
 06_domain_annotation/input/
 06_domain_annotation/interpro/
 06_domain_annotation/localization/

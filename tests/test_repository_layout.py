@@ -53,6 +53,10 @@ class RepositoryLayoutTest(unittest.TestCase):
             "05_hmmer_scan/p06_hmmer_candidate_summary.tsv",
             "05_hmmer_scan/raw_domtblout/family/shard.domtblout",
             "05_hmmer_scan/hmmer_logs/family/shard.txt",
+            "05_hmmer_scan/run_status/p06_hmmer_run_status.tsv",
+            "05_hmmer_scan/overlong_protein_exclusions/family/chunk.tsv",
+            "05_hmmer_scan_smoke_r8/raw_domtblout/family/shard.domtblout",
+            "05_hmmer_scan_length_smoke_r8/overlong_protein_exclusions/family/chunk.tsv",
         ]
         for path in paths:
             with self.subTest(path=path):

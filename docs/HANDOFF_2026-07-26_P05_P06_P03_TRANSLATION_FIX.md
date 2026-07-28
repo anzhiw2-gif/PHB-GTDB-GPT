@@ -4,6 +4,10 @@ This handoff records the current repository state after the P05 seed
 reinforcement, the first P06 scanner scaffold, and the P03 translation-fix
 rerun on T141.
 
+> Historical status only: this 2026-07-26 handoff predates the approved
+> four-model P06 execution. For the current P06 outcome, use
+> `docs/P06_COMPLETION_2026-07-28.md`.
+
 Claim boundary: HMM, domain, localization, and tree evidence are sequence
 evidence only. They do not by themselves prove PHB/PHA degradation phenotype.
 

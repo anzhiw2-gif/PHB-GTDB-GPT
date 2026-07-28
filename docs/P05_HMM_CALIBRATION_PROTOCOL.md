@@ -10,8 +10,10 @@ challenges. The resulting score and coverage limits are sequence-classification
 criteria only. They do not demonstrate PHB/PHA depolymerase activity for a
 GTDB hit.
 
-P06 remains blocked until each of the six profiles has a documented calibration
-decision and the model registry is explicitly updated after review.
+Before P06 launch, each of the six profiles required a documented calibration
+decision and an explicit model-registry update after review. That gate was
+satisfied with four approved scan models and three blocked subtype references;
+the completed P06 record is `P06_COMPLETION_2026-07-28.md`.
 
 The calibration panel's `sequence_sha256` is computed from the normalized
 amino-acid residue string only. FASTA headers, line wrapping, and CRLF/LF

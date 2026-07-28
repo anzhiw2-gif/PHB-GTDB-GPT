@@ -1,9 +1,10 @@
 # P05 HMM Seed Selection Decision
 
 **Decision date:** 2026-07-27
-**Status:** user-approved on 2026-07-27; the three affected models must be
-rebuilt and checksum-locked. P06 remains frozen until all six models complete
-their close-non-target-hydrolase calibration and receive explicit approval.
+**Status:** user-approved on 2026-07-27; the three affected models were rebuilt
+and checksum-locked. This historical gate was satisfied after all six profiles
+received calibration decisions: exactly four models were approved for P06, and
+their scan/parse acceptance is recorded in `P06_COMPLETION_2026-07-28.md`.
 
 ## Locked Screening Rules
 
