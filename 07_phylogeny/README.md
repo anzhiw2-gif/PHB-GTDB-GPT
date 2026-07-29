@@ -60,7 +60,7 @@ cd /home/data/haoyu/PHB-GTDB-GPT
 /home/data/haoyu/miniconda3/envs/phb_gtdb/bin/python \
   scripts/p08_prepare_phylogeny.py \
   --candidate-table 05_hmmer_scan/p06_hmmer_candidates.tsv \
-  --gtdb-release GTDB_R232 \
+  --gtdb-release "GTDB Release 11 R232" \
   --p06-scan-manifest 05_hmmer_scan/p06_hmmer_scan_manifest.tsv \
   --p03-prediction-manifest 03_gtdb_proteomes/manifests/p03_prediction_manifest.tsv \
   --p03-prediction-qc 03_gtdb_proteomes/qc/p03_prediction_qc.tsv \

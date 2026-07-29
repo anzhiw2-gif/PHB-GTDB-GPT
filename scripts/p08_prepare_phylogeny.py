@@ -25,6 +25,7 @@ from scripts.p02_select_benchmark_genomes import load_taxonomy, strip_gtdb_prefi
 
 
 DEFAULT_INCLUDE_TIERS = ("High-confidence",)
+CANONICAL_GTDB_RELEASE = "GTDB Release 11 R232"
 REQUIRED_P07_TOOLS = ("InterProScan", "SignalP6")
 EVIDENCE_BOUNDARY = "sequence_and_annotation_evidence_only_not_phenotype_proof"
 BLOCK_FIELDS = ("stage", "family_category", "proteome_shard", "target_id", "reason", "source_path", "notes")
@@ -436,6 +437,8 @@ def prepare_p08_inputs(
     missing_provenance = [role for role, path in provenance_paths.items() if path is None]
     if not gtdb_release or not gtdb_release.strip() or missing_provenance:
         _fail(outdir, blocks, "P08 provenance chain requires explicit GTDB release, P06 scan manifest, P03 prediction manifest, and P03 prediction QC")
+    if gtdb_release.strip() != CANONICAL_GTDB_RELEASE:
+        _fail(outdir, blocks, f"P08 requires canonical GTDB release: {CANONICAL_GTDB_RELEASE}")
     provenance_paths = {role: Path(path) for role, path in provenance_paths.items()}
     for role, path in provenance_paths.items():
         if not path.is_file() or path.stat().st_size == 0:
@@ -494,7 +497,7 @@ def prepare_p08_inputs(
                 source_path=str(p05_control_table),
             )
 
-    expected_gtdb_release = gtdb_release.strip()
+    expected_gtdb_release = CANONICAL_GTDB_RELEASE
     expected_candidate_table = Path(p06_candidate_table)
     expected_scan_manifest = provenance_paths["p06_scan_manifest"]
     expected_candidate_table_sha256 = _sha256(expected_candidate_table)
@@ -910,7 +913,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         description="Prepare P08 phylogeny manifests without running alignment or tree inference."
     )
     parser.add_argument("--candidate-table", type=Path, required=True)
-    parser.add_argument("--gtdb-release", required=True, help="Explicit GTDB release declaration; it is recorded and never inferred.")
+    parser.add_argument("--gtdb-release", required=True, help=f"Exact canonical GTDB release declaration ({CANONICAL_GTDB_RELEASE}); it is recorded and never inferred.")
     parser.add_argument("--p06-scan-manifest", type=Path, required=True)
     parser.add_argument("--p03-prediction-manifest", type=Path, required=True)
     parser.add_argument("--p03-prediction-qc", type=Path, required=True)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import inspect
 import shutil
 import subprocess
 import sys
@@ -19,6 +20,7 @@ from scripts.p08_prepare_phylogeny import (
     prepare_p08_inputs,
     route_family_size,
 )
+from scripts.p07_prepare_domain_annotation import prepare_p07_inputs
 from scripts import p08_prepare_phylogeny as preparer
 
 
@@ -48,6 +50,7 @@ P07_SEQUENCE_FIELDS = (
     "gtdb_release",
 )
 P07_STATUS_FIELDS = ("tool", "fasta_shard", "input_fasta", "output_path", "status")
+P07_DEFAULT_GTDB_RELEASE = inspect.signature(prepare_p07_inputs).parameters["gtdb_release"].default
 
 
 def write_tsv(path: Path, fields: tuple[str, ...], rows: list[dict[str, str]]) -> None:
@@ -112,9 +115,9 @@ class PrepareP08InputsTests(unittest.TestCase):
             self.p07_sequences,
             P07_SEQUENCE_FIELDS,
             [
-                {"p07_sequence_id": "p07-arc1", "proteome_shard": "part_b", "target_id": "arc1", "source_proteome_path": "/machine/RS_GCF_000002.faa.gz", "target_length_from_p06": "4", "sequence_length": "4", "family_categories": "archaeal_patatin_like_pha_dep", "fasta_shard": str(self.p07_archaeal), "candidate_table_path": str(self.p06), "scan_manifest_path": str(self.p06_scan_manifest), "gtdb_release": "GTDB_R232"},
-                {"p07_sequence_id": "p07-bac1", "proteome_shard": "part_a", "target_id": "bac1", "source_proteome_path": "/machine/GB_GCF_000001.faa.gz", "target_length_from_p06": "8", "sequence_length": "8", "family_categories": "extracellular_pha_depolymerase_core", "fasta_shard": str(self.p07_bacterial), "candidate_table_path": str(self.p06), "scan_manifest_path": str(self.p06_scan_manifest), "gtdb_release": "GTDB_R232"},
-                {"p07_sequence_id": "p07-review1", "proteome_shard": "part_a", "target_id": "review1", "source_proteome_path": "/machine/GB_GCF_000001.faa.gz", "target_length_from_p06": "6", "sequence_length": "6", "family_categories": "extracellular_pha_depolymerase_core", "fasta_shard": str(self.p07_bacterial), "candidate_table_path": str(self.p06), "scan_manifest_path": str(self.p06_scan_manifest), "gtdb_release": "GTDB_R232"},
+                {"p07_sequence_id": "p07-arc1", "proteome_shard": "part_b", "target_id": "arc1", "source_proteome_path": "/machine/RS_GCF_000002.faa.gz", "target_length_from_p06": "4", "sequence_length": "4", "family_categories": "archaeal_patatin_like_pha_dep", "fasta_shard": str(self.p07_archaeal), "candidate_table_path": str(self.p06), "scan_manifest_path": str(self.p06_scan_manifest), "gtdb_release": P07_DEFAULT_GTDB_RELEASE},
+                {"p07_sequence_id": "p07-bac1", "proteome_shard": "part_a", "target_id": "bac1", "source_proteome_path": "/machine/GB_GCF_000001.faa.gz", "target_length_from_p06": "8", "sequence_length": "8", "family_categories": "extracellular_pha_depolymerase_core", "fasta_shard": str(self.p07_bacterial), "candidate_table_path": str(self.p06), "scan_manifest_path": str(self.p06_scan_manifest), "gtdb_release": P07_DEFAULT_GTDB_RELEASE},
+                {"p07_sequence_id": "p07-review1", "proteome_shard": "part_a", "target_id": "review1", "source_proteome_path": "/machine/GB_GCF_000001.faa.gz", "target_length_from_p06": "6", "sequence_length": "6", "family_categories": "extracellular_pha_depolymerase_core", "fasta_shard": str(self.p07_bacterial), "candidate_table_path": str(self.p06), "scan_manifest_path": str(self.p06_scan_manifest), "gtdb_release": P07_DEFAULT_GTDB_RELEASE},
             ],
         )
         write_tsv(
@@ -259,7 +262,7 @@ class PrepareP08InputsTests(unittest.TestCase):
                 "fasta_shard": str(fasta),
                 "candidate_table_path": str(self.p06),
                 "scan_manifest_path": str(self.p06_scan_manifest),
-                "gtdb_release": "GTDB_R232",
+                "gtdb_release": P07_DEFAULT_GTDB_RELEASE,
             })
         write_tsv(self.p06, P06_FIELDS, p06_rows)
         write_tsv(self.p07_sequences, P07_SEQUENCE_FIELDS, p07_rows)
@@ -283,9 +286,10 @@ class PrepareP08InputsTests(unittest.TestCase):
 
     def _prepare(self, **kwargs: object) -> dict[str, Path]:
         outdir = kwargs.pop("outdir", self.outdir)
+        gtdb_release = kwargs.pop("gtdb_release", P07_DEFAULT_GTDB_RELEASE)
         return prepare_p08_inputs(
             p06_candidate_table=self.p06,
-            gtdb_release="GTDB_R232",
+            gtdb_release=gtdb_release,
             p06_scan_manifest=self.p06_scan_manifest,
             p03_prediction_manifest=self.p03_prediction_manifest,
             p03_prediction_qc=self.p03_prediction_qc,
@@ -325,8 +329,10 @@ class PrepareP08InputsTests(unittest.TestCase):
         requested_rows = read_tsv(requested_outdir / "manifests" / "p08_candidate_manifest.tsv")
         self.assertIn("review1", [row["target_id"] for row in requested_rows])
 
-    def test_cli_writes_planned_manifests_without_executing_phylogeny_tools(self) -> None:
-        """The CLI combines Bac120/Ar53 taxonomy inputs but only plans P08 commands."""
+    def test_cli_accepts_the_unmodified_p07_default_release_manifest_without_executing_tools(self) -> None:
+        """The P08 CLI accepts P07's default release literal while only planning commands."""
+        self.assertEqual(P07_DEFAULT_GTDB_RELEASE, "GTDB Release 11 R232")
+        self.assertTrue(all(row["gtdb_release"] == P07_DEFAULT_GTDB_RELEASE for row in read_tsv(self.p07_sequences)))
         bac120_taxonomy = self.root / "bac120_taxonomy.tsv"
         ar53_taxonomy = self.root / "ar53_taxonomy.tsv"
         bac120_taxonomy.write_text("GCF_000001\td__Bacteria;p__Bac120\n", encoding="utf-8")
@@ -341,7 +347,7 @@ class PrepareP08InputsTests(unittest.TestCase):
             [
                 sys.executable, "scripts/p08_prepare_phylogeny.py",
                 "--candidate-table", str(self.p06),
-                "--gtdb-release", "GTDB_R232",
+                "--gtdb-release", P07_DEFAULT_GTDB_RELEASE,
                 "--p06-scan-manifest", str(self.p06_scan_manifest),
                 "--p03-prediction-manifest", str(self.p03_prediction_manifest),
                 "--p03-prediction-qc", str(self.p03_prediction_qc),
@@ -423,7 +429,7 @@ class PrepareP08InputsTests(unittest.TestCase):
             [
                 sys.executable, "scripts/p08_prepare_phylogeny.py",
                 "--candidate-table", str(self.p06),
-                "--gtdb-release", "GTDB_R232",
+                "--gtdb-release", P07_DEFAULT_GTDB_RELEASE,
                 "--p06-scan-manifest", str(self.p06_scan_manifest),
                 "--p03-prediction-manifest", str(self.p03_prediction_manifest),
                 "--p03-prediction-qc", str(self.p03_prediction_qc),
@@ -766,6 +772,14 @@ class PrepareP08InputsTests(unittest.TestCase):
         write_tsv(self.p07_sequences, P07_SEQUENCE_FIELDS, rows)
         with self.assertRaisesRegex(ValueError, "P07 GTDB release mismatch"):
             self._prepare()
+
+    def test_noncanonical_gtdb_release_alias_is_rejected_even_when_p07_rows_match(self) -> None:
+        rows = read_tsv(self.p07_sequences)
+        for row in rows:
+            row["gtdb_release"] = "GTDB_R232"
+        write_tsv(self.p07_sequences, P07_SEQUENCE_FIELDS, rows)
+        with self.assertRaisesRegex(ValueError, "canonical GTDB release"):
+            self._prepare(gtdb_release="GTDB_R232")
 
     def test_each_p07_record_must_name_the_supplied_p06_candidate_table(self) -> None:
         unrelated_candidate_table = self.root / "unrelated_p06.tsv"

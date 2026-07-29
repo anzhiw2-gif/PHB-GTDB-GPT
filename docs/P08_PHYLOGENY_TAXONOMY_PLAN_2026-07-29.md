@@ -2,7 +2,8 @@
 
 ## 最终溯源失败关闭补充
 
-P08 在读取 P07 sequence manifest 时逐行核对 `gtdb_release`，并以标准化路径核对
+P08 唯一接受 P07 默认和文档使用的精确 release 字面量 `GTDB Release 11 R232`；不接受
+缩写、别名或大小写漂移。它在读取 P07 sequence manifest 时逐行核对 `gtdb_release`，并以标准化路径核对
 `candidate_table_path` 和 `scan_manifest_path` 是否分别等于显式 P06 输入；验证后的两条
 P06 来源及 SHA-256 写回候选记录。P07 status 仅以实际 FASTA shard stem 关联，且每个工具的
 `input_fasta` 必须解析为同一实际 shard，避免同 stem 的异路径复用。
