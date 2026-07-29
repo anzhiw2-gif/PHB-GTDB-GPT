@@ -44,6 +44,11 @@
 06_domain_annotation/interpro/
 06_domain_annotation/localization/
 06_domain_annotation/review/
+06_domain_annotation/p06_reasonableness/
+06_domain_annotation/run_status/
+06_domain_annotation/manifests/p07_candidate_sequence_manifest.tsv
+06_domain_annotation/manifests/p07_domain_annotation_command_manifest.tsv
+06_domain_annotation/manifests/p07_domain_annotation_summary.tsv
 07_phylogeny/family_fastas/
 07_phylogeny/alignments/
 07_phylogeny/trees/
@@ -59,6 +64,7 @@ work/
 .nextflow/
 .nextflow.log*
 results/
+tmp/
 __pycache__/
 *.py[cod]
 .pytest_cache/

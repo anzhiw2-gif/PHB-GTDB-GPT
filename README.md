@@ -36,6 +36,9 @@
 - [docs/P05_EXTRACELLULAR_SUBTYPE_ARCHIVE_RECORD_2026-07-28.md](docs/P05_EXTRACELLULAR_SUBTYPE_ARCHIVE_RECORD_2026-07-28.md) 记录三个胞外子模型、校准边界和 pooled core 的 P06 交接
 - [docs/P06_LAUNCH_2026-07-28.md](docs/P06_LAUNCH_2026-07-28.md) 固化四个批准 HMM 的 P06 正式扫描范围、校验、长度限制审计和断点恢复规则
 - [docs/P06_COMPLETION_2026-07-28.md](docs/P06_COMPLETION_2026-07-28.md) 记录 P06 四模型完整扫描、候选解析和技术验收结果
+- [docs/P06_REASONABLENESS_AUDIT_PLAN_2026-07-28.md](docs/P06_REASONABLENESS_AUDIT_PLAN_2026-07-28.md) 记录 P06 候选表合理性审计脚手架和 T141 执行入口
+- [docs/P07_DOMAIN_LOCALIZATION_PLAN_2026-07-28.md](docs/P07_DOMAIN_LOCALIZATION_PLAN_2026-07-28.md) 记录 P07 候选序列抽取与 InterPro/localization 注释脚手架；注释尚未运行
+- [docs/P07_COMPLETION_2026-07-29.md](docs/P07_COMPLETION_2026-07-29.md) 记录 P07 High-confidence 批处理已完成、状态表汇总和证据边界
 
 主要脚本在 `scripts/`：
 
@@ -47,6 +50,9 @@
 - `p03_monitor_translation_fix.py`
 - `p06_scan_family_profiles.py`
 - `p06_run_family_profiles.py`
+- `p06_candidate_reasonableness.py`
+- `p07_prepare_domain_annotation.py`
+- `p07_run_domain_annotation.py`
 
 ## 运行环境
 
@@ -97,7 +103,7 @@ cd /home/data/haoyu/PHB-GTDB-GPT
 /home/data/haoyu/miniconda3/envs/phb_gtdb/bin/python scripts/p03_monitor_translation_fix.py --once
 ```
 
-当前护栏：P03 翻译修复及 P06 四模型扫描/解析均已验收。P06 的全量 `domtblout`、候选表、状态日志和超长目标审计表保持 machine-local 且被 Git 忽略；紧凑验收记录见 `docs/P06_COMPLETION_2026-07-28.md`。P07 尚未开始，后续不得将 HMM 命中直接表述为 PHB/PHA 降解表型。
+当前护栏：P03 翻译修复及 P06 四模型扫描/解析均已验收。P06 的全量 `domtblout`、候选表、状态日志和超长目标审计表保持 machine-local 且被 Git 忽略；紧凑验收记录见 `docs/P06_COMPLETION_2026-07-28.md`。P06 候选表合理性审计和 P07 High-confidence 候选序列抽取已在 T141 完成，P07 InterProScan/SignalP6 批处理也已完成并记录在 `docs/P07_COMPLETION_2026-07-29.md`；后续不得将 HMM 命中或 annotation 命中直接表述为 PHB/PHA 降解表型。
 
 ## 运行前提
 

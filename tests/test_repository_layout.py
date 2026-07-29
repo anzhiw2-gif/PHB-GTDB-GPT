@@ -69,6 +69,32 @@ class RepositoryLayoutTest(unittest.TestCase):
                 )
                 self.assertEqual(ignored.returncode, 0, ignored.stderr)
 
+    def test_generated_p07_outputs_are_ignored(self) -> None:
+        paths = [
+            "06_domain_annotation/p06_reasonableness/p06_candidate_reasonableness_summary.tsv",
+            "06_domain_annotation/p06_reasonableness/p06_family_tier_reasonableness.tsv",
+            "06_domain_annotation/p06_reasonableness/p06_high_confidence_overlap_targets.tsv",
+            "06_domain_annotation/p06_reasonableness/P06_REASONABLENESS_AUDIT.md",
+            "06_domain_annotation/input/fasta_shards/p07_candidates_000001.faa",
+            "06_domain_annotation/interpro/p07_candidates_000001/interproscan.tsv",
+            "06_domain_annotation/localization/signalp6/p07_candidates_000001/prediction_results.txt",
+            "06_domain_annotation/review/p07_missing_candidate_sequences.tsv",
+            "06_domain_annotation/run_status/p07_domain_annotation_run_status.tsv",
+            "06_domain_annotation/manifests/p07_candidate_sequence_manifest.tsv",
+            "06_domain_annotation/manifests/p07_domain_annotation_command_manifest.tsv",
+            "06_domain_annotation/manifests/p07_domain_annotation_summary.tsv",
+        ]
+        for path in paths:
+            with self.subTest(path=path):
+                ignored = subprocess.run(
+                    ["git", "check-ignore", path],
+                    cwd=ROOT,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(ignored.returncode, 0, ignored.stderr)
+
     def test_repository_validator_succeeds(self) -> None:
         result = subprocess.run(
             [sys.executable, "scripts/validate_repository.py"],

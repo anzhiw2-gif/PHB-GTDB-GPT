@@ -29,7 +29,9 @@ PHB/PHA degradation phenotype.
 - P03: translation-fix rerun complete on T141; QC and manifest regenerated
 - P04: complete; seed-admission and boundary-control decisions are recorded
 - P05: complete; four scan models are checksum-locked and calibration-approved. The three extracellular subtype artifacts remain blocked and are replaced for P06 entry by `extracellular_pha_depolymerase_core`
-- P06: complete for the four-model GTDB R232 HMMER scan and candidate parsing in isolated T141 worktree `/home/data/haoyu/PHB-GTDB-GPT-p06-r8-20260728` from commit `80991a7`; 4,000/4,000 raw jobs are accepted and parsing found `missing_domtblout=0`. See `docs/P06_COMPLETION_2026-07-28.md`. P07 interpretation has not started.
+- P06: complete for the four-model GTDB R232 HMMER scan and candidate parsing in isolated T141 worktree `/home/data/haoyu/PHB-GTDB-GPT-p06-r8-20260728` from commit `80991a7`; 4,000/4,000 raw jobs are accepted and parsing found `missing_domtblout=0`. See `docs/P06_COMPLETION_2026-07-28.md`.
+- P07: completed on T141; 37,912/37,912 selected candidate sequences were extracted into 76 FASTA shards, and the full InterProScan/SignalP6 batch completed with 6 workers and `-cpu 10`. The final run-status table reported `completed=103`, `skipped_existing=49`, `failed_exit_code=0`, and `failed_missing_output=0`. See `docs/P07_COMPLETION_2026-07-29.md`.
+- P06/P07 audit bridge: compact P06 candidate-table reasonableness audit completed on T141; High-confidence unique targets are `37,912`, with `high_confidence_overlap_targets=0`. Generated audit outputs remain machine-local. See `docs/P06_REASONABLENESS_AUDIT_PLAN_2026-07-28.md`.
 
 ## Verified Outputs
 
@@ -150,6 +152,20 @@ PHB/PHA degradation phenotype.
 - P06 planning outputs written before the model-approval gate on 2026-07-27 are not valid for a new scan:
   - `05_hmmer_scan/p06_hmmer_scan_manifest.tsv`
   - `05_hmmer_scan/p06_hmmer_scan_summary.tsv`
+- P07 scaffold:
+  - `scripts/p06_candidate_reasonableness.py`
+  - `scripts/p07_prepare_domain_annotation.py`
+  - `scripts/p07_run_domain_annotation.py`
+  - `tests/test_p06_candidate_reasonableness.py`
+  - `tests/test_p07_prepare_domain_annotation.py`
+  - `tests/test_p07_run_domain_annotation.py`
+  - `docs/P06_REASONABLENESS_AUDIT_PLAN_2026-07-28.md`
+  - `docs/P07_DOMAIN_LOCALIZATION_PLAN_2026-07-28.md`
+  - `docs/P07_COMPLETION_2026-07-29.md`
+  - run the compact P06 reasonableness audit before P07 sequence extraction; generated audit outputs stay machine-local unless an accepted summary is promoted
+  - default input is P06 `High-confidence` only; `Review` requires an explicit secondary pass
+  - P07 runner supports `--preflight-only` and resumable status tracking; rerun preflight after installing or loading InterProScan/Java and SignalP6, then run a one-shard smoke before any full batch
+  - generated FASTA shards, InterPro/localization outputs, review tables, and P07 generated manifests stay machine-local unless compact summaries are later accepted
 
 ## Key Files
 
@@ -167,9 +183,13 @@ PHB/PHA degradation phenotype.
 - `scripts/p05_family_profile_commands.py`
 - `scripts/p05_catalog_hmm_models.py`
 - `scripts/p06_scan_family_profiles.py`
+- `scripts/p06_candidate_reasonableness.py`
 - `docs/P05_FAMILY_PROFILE_PLAN.md`
 - `docs/P05_HMM_MODEL_CATALOG.md`
 - `docs/P05_HMM_CONSTRUCTION_VALIDATION_RECORD_2026-07-27.md`
+- `scripts/p07_prepare_domain_annotation.py`
+- `docs/P06_REASONABLENESS_AUDIT_PLAN_2026-07-28.md`
+- `docs/P07_DOMAIN_LOCALIZATION_PLAN_2026-07-28.md`
 
 ## Operating Rules
 
