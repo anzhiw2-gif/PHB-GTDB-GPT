@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -258,6 +260,11 @@ class PrepareP08InputsTests(unittest.TestCase):
             **kwargs,
         )
 
+    def test_p08_readme_exists_and_is_nonempty(self) -> None:
+        readme = Path(__file__).resolve().parents[1] / "07_phylogeny" / "README.md"
+        self.assertTrue(readme.is_file())
+        self.assertTrue(readme.read_text(encoding="utf-8").strip())
+
     def test_high_confidence_candidates_have_sorted_taxonomy_annotations_and_verified_references(self) -> None:
         outputs = self._prepare()
         candidates = read_tsv(outputs["candidate_manifest"])
@@ -278,6 +285,120 @@ class PrepareP08InputsTests(unittest.TestCase):
         self._prepare(outdir=requested_outdir, include_tiers=("High-confidence", "Review"))
         requested_rows = read_tsv(requested_outdir / "manifests" / "p08_candidate_manifest.tsv")
         self.assertIn("review1", [row["target_id"] for row in requested_rows])
+
+    def test_cli_writes_planned_manifests_without_executing_phylogeny_tools(self) -> None:
+        """The CLI combines Bac120/Ar53 taxonomy inputs but only plans P08 commands."""
+        bac120_taxonomy = self.root / "bac120_taxonomy.tsv"
+        ar53_taxonomy = self.root / "ar53_taxonomy.tsv"
+        bac120_taxonomy.write_text("GCF_000001\td__Bacteria;p__Bac120\n", encoding="utf-8")
+        ar53_taxonomy.write_text("GCF_000002\td__Archaea;p__Ar53\n", encoding="utf-8")
+        bac120_tree = self.root / "bac120.tree"
+        ar53_tree = self.root / "ar53.tree"
+        bac120_tree.write_text("(GCF_000001:1);\n", encoding="utf-8")
+        ar53_tree.write_text("(GCF_000002:1);\n", encoding="utf-8")
+        cli_outdir = self.root / "cli-out"
+
+        completed = subprocess.run(
+            [
+                sys.executable, "scripts/p08_prepare_phylogeny.py",
+                "--candidate-table", str(self.p06),
+                "--p07-sequence-manifest", str(self.p07_sequences),
+                "--p07-status-table", str(self.p07_status),
+                "--model-registry", str(self.registry),
+                "--seed-registry", str(self.seeds),
+                "--control-panel", str(self.controls),
+                "--bac120-taxonomy", str(bac120_taxonomy),
+                "--ar53-taxonomy", str(ar53_taxonomy),
+                "--bac120-tree", str(bac120_tree),
+                "--ar53-tree", str(ar53_tree),
+                "--outdir", str(cli_outdir),
+                "--include-tier", "High-confidence",
+                "--include-tier", "Review",
+                "--mafft-exe", "mafft-local",
+                "--iqtree-exe", "iqtree2-local",
+                "--fasttree-exe", "FastTree-local",
+            ],
+            cwd=Path(__file__).resolve().parents[1],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        for name in (
+            "p08_candidate_manifest.tsv", "p08_family_reference_manifest.tsv",
+            "p08_preparation_summary.tsv", "p08_family_input_manifest.tsv",
+            "p08_phylogeny_command_manifest.tsv", "p08_input_provenance.tsv",
+        ):
+            self.assertTrue((cli_outdir / "manifests" / name).is_file(), name)
+        command_rows = read_tsv(cli_outdir / "manifests" / "p08_phylogeny_command_manifest.tsv")
+        self.assertTrue(command_rows)
+        self.assertTrue(all(row["command_status"] == "planned_not_run" for row in command_rows))
+        self.assertTrue(all("mafft-local" in row["mafft_template"] for row in command_rows))
+        self.assertFalse((cli_outdir / "alignments").exists())
+        taxonomy_rows = read_tsv(cli_outdir / "gtdb_mapping" / "p08_taxonomy_join.tsv")
+        self.assertEqual(
+            {row["assembly_accession"]: row["taxonomy_lineage"] for row in taxonomy_rows},
+            {"GCF_000001": "d__Bacteria;p__Bac120", "GCF_000002": "d__Archaea;p__Ar53"},
+        )
+        provenance_rows = read_tsv(cli_outdir / "manifests" / "p08_input_provenance.tsv")
+        provenance = {row["input_role"]: row for row in provenance_rows}
+        self.assertEqual(provenance["bac120_taxonomy"]["input_sha256"], self._sha256(bac120_taxonomy))
+        self.assertEqual(provenance["ar53_taxonomy"]["input_sha256"], self._sha256(ar53_taxonomy))
+        self.assertEqual(provenance["bac120_tree"]["input_sha256"], self._sha256(bac120_tree))
+        self.assertEqual(provenance["ar53_tree"]["input_sha256"], self._sha256(ar53_tree))
+        self.assertEqual(provenance["bac120_tree"]["input_usage"], "provenance_preflight_only_no_topology_read")
+        self.assertEqual(provenance["ar53_tree"]["input_usage"], "provenance_preflight_only_no_topology_read")
+
+        default_command = list(completed.args)
+        include_index = default_command.index("--include-tier")
+        del default_command[include_index:include_index + 4]
+        default_outdir = self.root / "cli-default-out"
+        default_command[default_command.index("--outdir") + 1] = str(default_outdir)
+        default_completed = subprocess.run(
+            default_command,
+            cwd=Path(__file__).resolve().parents[1],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(default_completed.returncode, 0, default_completed.stderr)
+        default_candidates = read_tsv(default_outdir / "manifests" / "p08_candidate_manifest.tsv")
+        self.assertNotIn("review1", [row["target_id"] for row in default_candidates])
+
+    def test_cli_rejects_taxonomy_input_with_wrong_domain(self) -> None:
+        bac120_taxonomy = self.root / "wrong_bac120_taxonomy.tsv"
+        ar53_taxonomy = self.root / "ar53_taxonomy.tsv"
+        bac120_taxonomy.write_text("GCF_000002\td__Archaea;p__WrongFile\n", encoding="utf-8")
+        ar53_taxonomy.write_text("GCF_000001\td__Bacteria;p__WrongFile\n", encoding="utf-8")
+        bac120_tree = self.root / "bac120.tree"
+        ar53_tree = self.root / "ar53.tree"
+        bac120_tree.write_text("(GCF_000001:1);\n", encoding="utf-8")
+        ar53_tree.write_text("(GCF_000002:1);\n", encoding="utf-8")
+
+        completed = subprocess.run(
+            [
+                sys.executable, "scripts/p08_prepare_phylogeny.py",
+                "--candidate-table", str(self.p06),
+                "--p07-sequence-manifest", str(self.p07_sequences),
+                "--p07-status-table", str(self.p07_status),
+                "--model-registry", str(self.registry),
+                "--seed-registry", str(self.seeds),
+                "--control-panel", str(self.controls),
+                "--bac120-taxonomy", str(bac120_taxonomy),
+                "--ar53-taxonomy", str(ar53_taxonomy),
+                "--bac120-tree", str(bac120_tree),
+                "--ar53-tree", str(ar53_tree),
+                "--outdir", str(self.root / "wrong-domain-out"),
+            ],
+            cwd=Path(__file__).resolve().parents[1],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("Bac120 taxonomy", completed.stderr)
 
     def test_length_mismatch_blocks_and_writes_review(self) -> None:
         rows = read_tsv(self.p07_sequences)

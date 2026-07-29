@@ -32,6 +32,7 @@ PHB/PHA degradation phenotype.
 - P06: complete for the four-model GTDB R232 HMMER scan and candidate parsing in isolated T141 worktree `/home/data/haoyu/PHB-GTDB-GPT-p06-r8-20260728` from commit `80991a7`; 4,000/4,000 raw jobs are accepted and parsing found `missing_domtblout=0`. See `docs/P06_COMPLETION_2026-07-28.md`.
 - P07: completed on T141; 37,912/37,912 selected candidate sequences were extracted into 76 FASTA shards, and the full InterProScan/SignalP6 batch completed with 6 workers and `-cpu 10`. The final run-status table reported `completed=103`, `skipped_existing=49`, `failed_exit_code=0`, and `failed_missing_output=0`. See `docs/P07_COMPLETION_2026-07-29.md`.
 - P06/P07 audit bridge: compact P06 candidate-table reasonableness audit completed on T141; High-confidence unique targets are `37,912`, with `high_confidence_overlap_targets=0`. Generated audit outputs remain machine-local. See `docs/P06_REASONABLENESS_AUDIT_PLAN_2026-07-28.md`.
+- P08: local phylogeny/taxonomy scaffold and `--preflight-only` runner implementation are complete. T141 preflight has not run; no MAFFT alignment, FastTree exploration, IQ-TREE inference, rooting, or biological P08 analysis has been executed. See `docs/P08_PHYLOGENY_TAXONOMY_PLAN_2026-07-29.md`.
 
 ## Verified Outputs
 
@@ -166,6 +167,15 @@ PHB/PHA degradation phenotype.
   - default input is P06 `High-confidence` only; `Review` requires an explicit secondary pass
   - P07 runner supports `--preflight-only` and resumable status tracking; rerun preflight after installing or loading InterProScan/Java and SignalP6, then run a one-shard smoke before any full batch
   - generated FASTA shards, InterPro/localization outputs, review tables, and P07 generated manifests stay machine-local unless compact summaries are later accepted
+- P08 scaffold:
+  - `scripts/p08_prepare_phylogeny.py` and `scripts/p08_run_phylogeny.py`
+  - `tests/test_p08_prepare_phylogeny.py` and `tests/test_p08_run_phylogeny.py`
+  - `docs/P08_PHYLOGENY_TAXONOMY_PLAN_2026-07-29.md` and `07_phylogeny/README.md`
+  - preparation accepts only approved P05 models, defaults to P06 `High-confidence`, permits `Review` only when explicit, preserves nonexclusive multi-model targets, and records accessioned seed/control plus GTDB taxonomy provenance
+  - Bac120/Ar53 taxonomy sources are domain-validated and hash-locked; tree paths/SHA-256 are recorded in the machine-local input provenance manifest as preflight-only inputs, without reading tree topology
+  - preparation never runs MAFFT, FastTree, or IQ-TREE and writes command rows as `planned_not_run`
+  - the runner CLI remains `--manifest --status-dir --workers --preflight-only`; T141 preflight and every actual alignment/tree inference remain not run and need separate authorization
+  - P08 family FASTA, mappings, manifests, reviews, statuses, logs, alignments, and trees stay machine-local unless a compact, accepted summary is later promoted
 
 ## Key Files
 
@@ -190,6 +200,9 @@ PHB/PHA degradation phenotype.
 - `scripts/p07_prepare_domain_annotation.py`
 - `docs/P06_REASONABLENESS_AUDIT_PLAN_2026-07-28.md`
 - `docs/P07_DOMAIN_LOCALIZATION_PLAN_2026-07-28.md`
+- `scripts/p08_prepare_phylogeny.py`
+- `scripts/p08_run_phylogeny.py`
+- `docs/P08_PHYLOGENY_TAXONOMY_PLAN_2026-07-29.md`
 
 ## Operating Rules
 

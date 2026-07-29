@@ -7,13 +7,18 @@ does not execute alignment, tree, or other external phylogeny tools.
 
 from __future__ import annotations
 
+import argparse
 import csv
 import hashlib
 import re
 import subprocess
+import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
+
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.p02_select_benchmark_genomes import load_taxonomy, strip_gtdb_prefix
 
@@ -51,6 +56,11 @@ SUMMARY_FIELDS = (
     "family_category", "candidate_count", "route", "family_fasta_path", "family_fasta_sha256",
     "total_fasta_record_count",
 )
+TAXONOMY_JOIN_FIELDS = (
+    "family_category", "proteome_shard", "target_id", "assembly_accession", "taxonomy_lineage",
+    "taxonomy_source_role", "taxonomy_source_path", "taxonomy_source_sha256",
+)
+INPUT_PROVENANCE_FIELDS = ("input_role", "input_path", "input_sha256", "input_usage")
 ROOTING_POLICY = "explicit_accessioned_outgroup_required; otherwise midpoint_display_only"
 IQTREE2_TEMPLATE = "iqtree2 -s {alignment_fasta} -m TEST -B 1000 --prefix {iqtree_prefix}"
 
@@ -69,7 +79,13 @@ def route_family_size(sequence_count: int) -> str:
     return "deterministic_representative_plan_then_fasttree_exploratory"
 
 
-def planned_command_templates(candidate_count: int) -> dict[str, str]:
+def planned_command_templates(
+    candidate_count: int,
+    *,
+    mafft_exe: str = "mafft",
+    iqtree_exe: str = "iqtree2",
+    fasttree_exe: str = "FastTree",
+) -> dict[str, str]:
     """Return unexecuted command templates appropriate to a candidate count."""
     route = route_family_size(candidate_count)
     templates = {
@@ -77,15 +93,15 @@ def planned_command_templates(candidate_count: int) -> dict[str, str]:
         "mafft_template": "",
         "fasttree_template": "",
         "representative_plan": "",
-        "iqtree2_template": IQTREE2_TEMPLATE,
+        "iqtree2_template": IQTREE2_TEMPLATE.replace("iqtree2", iqtree_exe, 1),
     }
     if route == "mafft_linsi_then_review":
-        templates["mafft_template"] = "mafft --localpair --maxiterate 1000 --thread {threads} --inputorder {input_fasta} > {alignment_fasta}"
+        templates["mafft_template"] = f"{mafft_exe} --localpair --maxiterate 1000 --thread {{threads}} --inputorder {{input_fasta}} > {{alignment_fasta}}"
     elif route == "mafft_auto_then_review":
-        templates["mafft_template"] = "mafft --auto --thread {threads} --inputorder {input_fasta} > {alignment_fasta}"
+        templates["mafft_template"] = f"{mafft_exe} --auto --thread {{threads}} --inputorder {{input_fasta}} > {{alignment_fasta}}"
     else:
         templates["representative_plan"] = "deterministic representative subset required before exploratory FastTree; no representative selection executed"
-        templates["fasttree_template"] = "FastTree -lg {representative_alignment_fasta} > {fasttree_tree}"
+        templates["fasttree_template"] = f"{fasttree_exe} -lg {{representative_alignment_fasta}} > {{fasttree_tree}}"
     return templates
 
 
@@ -125,6 +141,54 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _load_taxonomy_records(
+    paths: Sequence[Path],
+    source_roles: Sequence[str] | None,
+) -> dict[str, dict[str, str]]:
+    """Load GTDB taxonomy while retaining CLI source-role provenance."""
+    paths = tuple(Path(path) for path in paths)
+    if source_roles is None:
+        combined = load_taxonomy(paths)
+        return {
+            accession: {
+                "lineage": lineage,
+                "source_role": "combined_taxonomy_input",
+                "source_path": "",
+                "source_sha256": "",
+            }
+            for accession, lineage in combined.items()
+        }
+    if len(paths) != len(source_roles):
+        raise ValueError("taxonomy paths and source roles must have the same length")
+    expected_domains = {
+        "bac120_taxonomy": "d__Bacteria",
+        "ar53_taxonomy": "d__Archaea",
+    }
+    records: dict[str, dict[str, str]] = {}
+    for path, role in zip(paths, source_roles):
+        expected_domain = expected_domains.get(role)
+        if expected_domain is None:
+            raise ValueError(f"unsupported taxonomy source role: {role}")
+        source_sha256 = _sha256(path)
+        for accession, lineage in load_taxonomy([path]).items():
+            if lineage.split(";", maxsplit=1)[0] != expected_domain:
+                label = "Bac120 taxonomy" if role == "bac120_taxonomy" else "Ar53 taxonomy"
+                raise ValueError(f"{label} contains a lineage outside {expected_domain}: {accession}")
+            previous = records.get(accession)
+            if previous is not None and previous["source_role"] != role:
+                raise ValueError(
+                    f"taxonomy accession occurs in both sources: {accession}; "
+                    f"{previous['source_role']} and {role}"
+                )
+            records[accession] = {
+                "lineage": lineage,
+                "source_role": role,
+                "source_path": str(path),
+                "source_sha256": source_sha256,
+            }
+    return records
 
 
 def _read_fasta(path: Path) -> dict[str, str]:
@@ -218,6 +282,11 @@ def prepare_p08_inputs(
     taxonomy_paths: Sequence[Path],
     outdir: Path,
     include_tiers: Sequence[str] = DEFAULT_INCLUDE_TIERS,
+    mafft_exe: str = "mafft",
+    iqtree_exe: str = "iqtree2",
+    fasttree_exe: str = "FastTree",
+    taxonomy_source_roles: Sequence[str] | None = None,
+    additional_provenance_inputs: Mapping[str, Path] | None = None,
 ) -> dict[str, Path]:
     """Validate and write deterministic P08 manifests from existing P05--P07 data."""
     outdir = Path(outdir)
@@ -265,7 +334,9 @@ def prepare_p08_inputs(
         p07_ids.add(row["p07_sequence_id"])
     statuses = {(row["tool"], Path(row["fasta_shard"]).stem): row["status"] for row in status_rows}
     try:
-        taxonomy = load_taxonomy([Path(path) for path in taxonomy_paths])
+        taxonomy = _load_taxonomy_records(
+            [Path(path) for path in taxonomy_paths], taxonomy_source_roles
+        )
     except (OSError, ValueError) as error:
         _fail(outdir, blocks, f"taxonomy loading failed: {error}", source_path=", ".join(map(str, taxonomy_paths)))
 
@@ -404,9 +475,10 @@ def prepare_p08_inputs(
         if any(statuses.get((tool, shard_stem)) not in {"completed", "skipped_existing"} for tool in REQUIRED_P07_TOOLS):
             _fail(outdir, blocks, "P07 annotation status requirement failed", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=p07["fasta_shard"], notes=f"fasta_shard_stem={shard_stem}; {status_detail}")
         assembly_accession = _assembly_accession(p07["source_proteome_path"])
-        lineage = taxonomy.get(assembly_accession)
-        if not lineage:
+        taxonomy_record = taxonomy.get(assembly_accession)
+        if not taxonomy_record:
             _fail(outdir, blocks, "taxonomy absence blocks processing", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=p07["source_proteome_path"])
+        lineage = taxonomy_record["lineage"]
         candidate = {
             **{field: p06[field] for field in P06_FIELDS},
             "p07_sequence_id": p07["p07_sequence_id"], "source_proteome_path": p07["source_proteome_path"], "fasta_shard": p07["fasta_shard"], "p07_annotation_status": "completed", "assembly_accession": assembly_accession, "taxonomy_lineage": lineage, "model_sha256": approved_models[family]["model_sha256"], "evidence_boundary": EVIDENCE_BOUNDARY,
@@ -421,7 +493,16 @@ def prepare_p08_inputs(
             "is_gtdb_candidate": "yes", "source_checksum_kind": "file_sha256",
             "source_model_sha256": approved_models[family]["model_sha256"], "model_provenance": "candidate_from_approved_model", "model_provenance_source_path": str(p05_model_registry),
         })
-        taxonomy_rows.append({"family_category": family, "proteome_shard": p06["proteome_shard"], "target_id": p06["target_id"], "assembly_accession": assembly_accession, "taxonomy_lineage": lineage})
+        taxonomy_rows.append({
+            "family_category": family,
+            "proteome_shard": p06["proteome_shard"],
+            "target_id": p06["target_id"],
+            "assembly_accession": assembly_accession,
+            "taxonomy_lineage": lineage,
+            "taxonomy_source_role": taxonomy_record["source_role"],
+            "taxonomy_source_path": taxonomy_record["source_path"],
+            "taxonomy_source_sha256": taxonomy_record["source_sha256"],
+        })
 
     sort_key = lambda row: (row["family_category"], row["proteome_shard"], row["target_id"])
     candidate_rows.sort(key=sort_key)
@@ -434,6 +515,7 @@ def prepare_p08_inputs(
         "preparation_summary": outdir / "manifests" / "p08_preparation_summary.tsv",
         "family_input_manifest": outdir / "manifests" / "p08_family_input_manifest.tsv",
         "phylogeny_command_manifest": outdir / "manifests" / "p08_phylogeny_command_manifest.tsv",
+        "input_provenance": outdir / "manifests" / "p08_input_provenance.tsv",
     }
     family_input_rows: list[dict[str, str]] = []
     command_rows: list[dict[str, str]] = []
@@ -471,7 +553,12 @@ def prepare_p08_inputs(
                 "evidence_boundary": EVIDENCE_BOUNDARY,
             })
         candidate_count = len(candidate_inputs)
-        templates = planned_command_templates(candidate_count)
+        templates = planned_command_templates(
+            candidate_count,
+            mafft_exe=mafft_exe,
+            iqtree_exe=iqtree_exe,
+            fasttree_exe=fasttree_exe,
+        )
         alignment_fasta = outdir / "alignments" / f"{family}.aligned.faa"
         representative_input = outdir / "review" / f"{family}.representative_input.faa"
         fasttree_tree = outdir / "trees" / f"{family}.fasttree.nwk"
@@ -493,9 +580,99 @@ def prepare_p08_inputs(
             "total_fasta_record_count": str(len(family_inputs)),
         })
     _write_tsv(outputs["candidate_manifest"], tuple(candidate_rows[0]), candidate_rows)
-    _write_tsv(outputs["taxonomy_join"], ("family_category", "proteome_shard", "target_id", "assembly_accession", "taxonomy_lineage"), taxonomy_rows)
+    _write_tsv(outputs["taxonomy_join"], TAXONOMY_JOIN_FIELDS, taxonomy_rows)
     _write_tsv(outputs["family_reference_manifest"], ("family_category", "record_kind", "record_id", "source_accession", "control_role", "sequence_path", "sequence_sha256", "verified_sha256", "evidence", "notes"), reference_rows)
     _write_tsv(outputs["preparation_summary"], SUMMARY_FIELDS, summary_rows)
     _write_tsv(outputs["family_input_manifest"], FAMILY_INPUT_FIELDS, sorted(family_input_rows, key=lambda row: (row["family_category"], kind_order[row["record_kind"]], row["record_identity"])))
     _write_tsv(outputs["phylogeny_command_manifest"], COMMAND_FIELDS, command_rows)
+    source_roles = tuple(taxonomy_source_roles or ())
+    primary_inputs = (
+        ("candidate_table", Path(p06_candidate_table), "P06_candidate_input"),
+        ("p07_sequence_manifest", Path(p07_sequence_table), "P07_sequence_input"),
+        ("p07_status_table", Path(p07_status_table), "P07_annotation_status_input"),
+        ("model_registry", Path(p05_model_registry), "P05_approved_model_gate"),
+        ("seed_registry", Path(p05_seed_table), "P05_accessioned_seed_provenance"),
+        ("control_panel", Path(p05_control_table), "P05_accessioned_control_provenance"),
+    )
+    taxonomy_inputs = tuple(
+        (source_roles[index] if source_roles else f"taxonomy_input_{index + 1}", Path(path), "GTDB_taxonomy_mapping")
+        for index, path in enumerate(taxonomy_paths)
+    )
+    tree_inputs = tuple(
+        (role, Path(path), "provenance_preflight_only_no_topology_read")
+        for role, path in (additional_provenance_inputs or {}).items()
+    )
+    provenance_rows = [
+        {"input_role": role, "input_path": str(path), "input_sha256": _sha256(path), "input_usage": usage}
+        for role, path, usage in (*primary_inputs, *taxonomy_inputs, *tree_inputs)
+    ]
+    _write_tsv(outputs["input_provenance"], INPUT_PROVENANCE_FIELDS, sorted(provenance_rows, key=lambda row: row["input_role"]))
     return outputs
+
+
+def _require_existing_provenance_path(path: Path, label: str) -> Path:
+    """Require a local provenance/preflight input without opening or inferring from it."""
+    path = Path(path)
+    if not path.is_file() or path.stat().st_size == 0:
+        raise ValueError(f"{label} must be an existing nonempty provenance/preflight input: {path}")
+    return path
+
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    """Build the planning-only P08 preparation CLI parser."""
+    parser = argparse.ArgumentParser(
+        description="Prepare P08 phylogeny manifests without running alignment or tree inference."
+    )
+    parser.add_argument("--candidate-table", type=Path, required=True)
+    parser.add_argument("--p07-sequence-manifest", type=Path, required=True)
+    parser.add_argument("--p07-status-table", type=Path, required=True)
+    parser.add_argument("--model-registry", type=Path, required=True)
+    parser.add_argument("--seed-registry", type=Path, required=True)
+    parser.add_argument("--control-panel", type=Path, required=True)
+    parser.add_argument("--bac120-taxonomy", type=Path, required=True)
+    parser.add_argument("--ar53-taxonomy", type=Path, required=True)
+    parser.add_argument("--bac120-tree", type=Path, required=True)
+    parser.add_argument("--ar53-tree", type=Path, required=True)
+    parser.add_argument("--outdir", type=Path, required=True)
+    parser.add_argument("--include-tier", choices=("High-confidence", "Review"), action="append")
+    parser.add_argument("--mafft-exe", default="mafft")
+    parser.add_argument("--iqtree-exe", default="iqtree2")
+    parser.add_argument("--fasttree-exe", default="FastTree")
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Write immutable P08 planning manifests; external tools are never invoked."""
+    parser = build_arg_parser()
+    args = parser.parse_args(argv)
+    try:
+        bac120_tree = _require_existing_provenance_path(args.bac120_tree, "--bac120-tree")
+        ar53_tree = _require_existing_provenance_path(args.ar53_tree, "--ar53-tree")
+        outputs = prepare_p08_inputs(
+            p06_candidate_table=args.candidate_table,
+            p07_sequence_table=args.p07_sequence_manifest,
+            p07_status_table=args.p07_status_table,
+            p05_model_registry=args.model_registry,
+            p05_seed_table=args.seed_registry,
+            p05_control_table=args.control_panel,
+            taxonomy_paths=(args.bac120_taxonomy, args.ar53_taxonomy),
+            taxonomy_source_roles=("bac120_taxonomy", "ar53_taxonomy"),
+            additional_provenance_inputs={"bac120_tree": bac120_tree, "ar53_tree": ar53_tree},
+            outdir=args.outdir,
+            include_tiers=tuple(args.include_tier or DEFAULT_INCLUDE_TIERS),
+            mafft_exe=args.mafft_exe,
+            iqtree_exe=args.iqtree_exe,
+            fasttree_exe=args.fasttree_exe,
+        )
+    except ValueError as error:
+        parser.error(str(error))
+    print("P08 preparation complete: planned_not_run only; no MAFFT, IQ-TREE, or FastTree command was executed.")
+    print(f"Bac120 tree provenance/preflight input: {bac120_tree}")
+    print(f"Ar53 tree provenance/preflight input: {ar53_tree}")
+    for name, path in sorted(outputs.items()):
+        print(f"{name}: {path}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
