@@ -106,7 +106,7 @@ class PrepareP08InputsTests(unittest.TestCase):
             [
                 {"tool": tool, "fasta_shard": shard, "status": "completed"}
                 for tool in REQUIRED_P07_TOOLS
-                for shard in ("p07_arc", "p07_bac")
+                for shard in ("/machine/p07_arc.fa", "/machine/p07_bac.fa")
             ],
         )
         write_tsv(
@@ -191,6 +191,56 @@ class PrepareP08InputsTests(unittest.TestCase):
         write_tsv(self.registry, tuple(rows[0].keys()), rows)
         with self.assertRaisesRegex(ValueError, "approved P05 model"):
             self._prepare()
+
+    def test_missing_p07_tool_status_blocks_with_candidate_and_status_details(self) -> None:
+        rows = [row for row in read_tsv(self.p07_status) if not (row["tool"] == "InterProScan" and row["fasta_shard"] == "/machine/p07_arc.fa")]
+        write_tsv(self.p07_status, ("tool", "fasta_shard", "status"), rows)
+        with self.assertRaisesRegex(ValueError, "P07 annotation status requirement failed"):
+            self._prepare()
+        blocks = read_tsv(self.outdir / "review" / "p08_blocked_records.tsv")
+        block = next(row for row in blocks if row["target_id"] == "arc1")
+        self.assertEqual(block["family_category"], "archaeal_patatin_like_pha_dep")
+        self.assertEqual(block["proteome_shard"], "part_b")
+        self.assertIn("InterProScan=missing", block["notes"])
+
+    def test_failed_exit_code_p07_tool_status_blocks(self) -> None:
+        rows = read_tsv(self.p07_status)
+        rows[0]["status"] = "failed_exit_code"
+        write_tsv(self.p07_status, ("tool", "fasta_shard", "status"), rows)
+        with self.assertRaisesRegex(ValueError, "P07 annotation status requirement failed"):
+            self._prepare()
+        blocks = read_tsv(self.outdir / "review" / "p08_blocked_records.tsv")
+        self.assertTrue(any("failed_exit_code" in row["notes"] for row in blocks))
+
+    def test_planned_not_run_p07_tool_status_blocks(self) -> None:
+        rows = read_tsv(self.p07_status)
+        rows[0]["status"] = "planned_not_run"
+        write_tsv(self.p07_status, ("tool", "fasta_shard", "status"), rows)
+        with self.assertRaisesRegex(ValueError, "P07 annotation status requirement failed"):
+            self._prepare()
+        blocks = read_tsv(self.outdir / "review" / "p08_blocked_records.tsv")
+        self.assertTrue(any("planned_not_run" in row["notes"] for row in blocks))
+
+    def test_unknown_review_family_blocks_before_tier_selection(self) -> None:
+        rows = read_tsv(self.p06)
+        rows[2]["family_category"] = "unknown_review_family"
+        write_tsv(self.p06, P06_FIELDS, rows)
+        with self.assertRaisesRegex(ValueError, "unknown P06 family"):
+            self._prepare()
+        blocks = read_tsv(self.outdir / "review" / "p08_blocked_records.tsv")
+        self.assertEqual(blocks[0]["target_id"], "review1")
+
+    def test_blocked_review_family_blocks_before_tier_selection(self) -> None:
+        rows = read_tsv(self.p06)
+        rows[2]["family_category"] = "intracellular_mcl_pha_dep"
+        write_tsv(self.p06, P06_FIELDS, rows)
+        registry_rows = read_tsv(self.registry)
+        registry_rows.append({"family_category": "intracellular_mcl_pha_dep", "approved_for_p06": "no", "scan_permission": "blocked", "model_sha256": "c" * 64})
+        write_tsv(self.registry, tuple(registry_rows[0].keys()), registry_rows)
+        with self.assertRaisesRegex(ValueError, "missing approved P05 model"):
+            self._prepare()
+        blocks = read_tsv(self.outdir / "review" / "p08_blocked_records.tsv")
+        self.assertEqual(blocks[0]["target_id"], "review1")
 
     def test_seed_or_control_checksum_mismatch_blocks_and_writes_review(self) -> None:
         rows = read_tsv(self.seeds)

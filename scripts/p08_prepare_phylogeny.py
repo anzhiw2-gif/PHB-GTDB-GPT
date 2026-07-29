@@ -133,21 +133,20 @@ def prepare_p08_inputs(
         if key in p06_keys:
             _fail(outdir, blocks, "duplicate identical P06 row key", family_category=key[0], proteome_shard=key[1], target_id=key[2], source_path=str(p06_candidate_table))
         p06_keys.add(key)
-    selected = [row for row in p06_rows if row["tier"] in include_tiers]
-    if not selected:
-        _fail(outdir, blocks, "P06 candidate table has no selected tiers", source_path=str(p06_candidate_table))
-
     approved_models = {row["family_category"]: row for row in registry_rows if is_approved_model(row)}
     registry_families = {row["family_category"] for row in registry_rows}
-    for row in selected:
+    for row in p06_rows:
         family = row["family_category"]
         if family not in registry_families:
             _fail(outdir, blocks, "unknown P06 family", family_category=family, proteome_shard=row["proteome_shard"], target_id=row["target_id"], source_path=str(p06_candidate_table))
         if family not in approved_models:
             _fail(outdir, blocks, "missing approved P05 model", family_category=family, proteome_shard=row["proteome_shard"], target_id=row["target_id"], source_path=str(p05_model_registry))
+    selected = [row for row in p06_rows if row["tier"] in include_tiers]
+    if not selected:
+        _fail(outdir, blocks, "P06 candidate table has no selected tiers", source_path=str(p06_candidate_table))
 
     p07_by_key = {(row["proteome_shard"], row["target_id"]): row for row in p07_rows}
-    statuses = {(row["tool"], row["fasta_shard"]): row["status"] for row in status_rows}
+    statuses = {(row["tool"], Path(row["fasta_shard"]).stem): row["status"] for row in status_rows}
     try:
         taxonomy = load_taxonomy([Path(path) for path in taxonomy_paths])
     except (OSError, ValueError) as error:
@@ -182,15 +181,17 @@ def prepare_p08_inputs(
             _fail(outdir, blocks, "missing P07 sequence match", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=str(p07_sequence_table))
         if p06["target_length"] != p07["target_length_from_p06"] or p06["target_length"] != p07["sequence_length"]:
             _fail(outdir, blocks, "P06/P07 sequence length mismatch", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=str(p07_sequence_table))
+        shard_stem = Path(p07["fasta_shard"]).stem
+        status_detail = "; ".join(f"{tool}={statuses.get((tool, shard_stem), 'missing')}" for tool in REQUIRED_P07_TOOLS)
+        if any(statuses.get((tool, shard_stem)) not in {"completed", "skipped_existing"} for tool in REQUIRED_P07_TOOLS):
+            _fail(outdir, blocks, "P07 annotation status requirement failed", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=p07["fasta_shard"], notes=f"fasta_shard_stem={shard_stem}; {status_detail}")
         assembly_accession = _assembly_accession(p07["source_proteome_path"])
         lineage = taxonomy.get(assembly_accession)
         if not lineage:
             _fail(outdir, blocks, "taxonomy absence blocks processing", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=p07["source_proteome_path"])
-        shard_stem = Path(p07["fasta_shard"]).stem
-        annotation_complete = all(statuses.get((tool, shard_stem)) in {"completed", "skipped_existing"} for tool in REQUIRED_P07_TOOLS)
         candidate = {
             **{field: p06[field] for field in P06_FIELDS},
-            "p07_sequence_id": p07["p07_sequence_id"], "source_proteome_path": p07["source_proteome_path"], "fasta_shard": p07["fasta_shard"], "p07_annotation_status": "completed" if annotation_complete else "incomplete", "assembly_accession": assembly_accession, "taxonomy_lineage": lineage, "model_sha256": approved_models[family]["model_sha256"], "evidence_boundary": EVIDENCE_BOUNDARY,
+            "p07_sequence_id": p07["p07_sequence_id"], "source_proteome_path": p07["source_proteome_path"], "fasta_shard": p07["fasta_shard"], "p07_annotation_status": "completed", "assembly_accession": assembly_accession, "taxonomy_lineage": lineage, "model_sha256": approved_models[family]["model_sha256"], "evidence_boundary": EVIDENCE_BOUNDARY,
         }
         candidate_rows.append(candidate)
         taxonomy_rows.append({"family_category": family, "proteome_shard": p06["proteome_shard"], "target_id": p06["target_id"], "assembly_accession": assembly_accession, "taxonomy_lineage": lineage})
