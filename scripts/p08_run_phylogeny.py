@@ -14,6 +14,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
@@ -40,10 +41,10 @@ COMMAND_MANIFEST_FIELDS = (
 )
 STATUS_FIELDS = (
     "family_category", "route", "output_path", "input_fasta_path", "input_sha256",
+    "representative_input_fasta_path", "representative_input_sha256", "representative_input_contract",
     "command_template", "selected_command", "executable", "status", "exit_code",
     "started_at_utc", "finished_at_utc", "notes",
 )
-PHYLOGENY_EXECUTABLES = frozenset({"mafft", "fasttree", "fasttreemp", "iqtree", "iqtree2"})
 NON_BIOLOGICAL_NOTE = (
     "Execution and integrity status is not biological negative evidence; "
     "P08 remains sequence/annotation/tree-planning evidence only."
@@ -71,7 +72,14 @@ def _load_manifest(path: Path) -> list[dict[str, str]]:
             missing = [field for field in COMMAND_MANIFEST_FIELDS if field not in reader.fieldnames]
             if missing:
                 raise ValueError(f"{path} is missing Task 3 command-manifest columns: {', '.join(missing)}")
-            rows = [{key: (value or "").strip() for key, value in row.items()} for row in reader]
+            rows: list[dict[str, str]] = []
+            for line_number, row in enumerate(reader, start=2):
+                normalized = {key: (value or "").strip() for key, value in row.items()}
+                if normalized["command_status"] != "planned_not_run":
+                    raise ValueError(
+                        f"{path}:{line_number} must declare command_status=planned_not_run for P08 preflight"
+                    )
+                rows.append(normalized)
     except OSError as error:
         raise ValueError(f"could not read command manifest {path}: {error}") from error
     if not rows:
@@ -82,30 +90,40 @@ def _load_manifest(path: Path) -> list[dict[str, str]]:
 def _selected_task(job: dict[str, str]) -> dict[str, str]:
     route = job["route"]
     if route in {"mafft_linsi_then_review", "mafft_auto_then_review"}:
-        input_path = job["input_fasta_path"]
         output_path = job["alignment_fasta_path"]
         template = job["mafft_template"]
+        representative_input_path = ""
+        representative_contract = "not_applicable"
     elif route == "deterministic_representative_plan_then_fasttree_exploratory":
-        input_path = job["representative_input_fasta_path"]
         output_path = job["fasttree_tree_path"]
         template = job["fasttree_template"]
+        representative_input_path = job["representative_input_fasta_path"]
+        representative_contract = (
+            "planned_not_materialized; independent representative SHA-256 is required "
+            "before any separately authorized FastTree execution"
+        )
     else:
         raise ValueError(f"unsupported Task 3 P08 route {route!r} for family {job['family_category']!r}")
     required = {
         "family_category": job["family_category"],
-        "input_fasta_path": input_path,
+        "input_fasta_path": job["input_fasta_path"],
         "input_sha256": job["input_sha256"],
         "output_path": output_path,
     }
+    if route == "deterministic_representative_plan_then_fasttree_exploratory":
+        required["representative_input_fasta_path"] = representative_input_path
     missing = [field for field, value in required.items() if not value]
     if missing:
         raise ValueError(f"Task 3 command manifest has missing selected values for {job['family_category']!r}: {', '.join(missing)}")
     return {
         "family_category": job["family_category"],
         "route": route,
-        "input_fasta_path": input_path,
+        "input_fasta_path": job["input_fasta_path"],
         "input_sha256": job["input_sha256"],
         "output_path": output_path,
+        "representative_input_fasta_path": representative_input_path,
+        "representative_input_sha256": "",
+        "representative_input_contract": representative_contract,
         "command_template": template,
         "selected_command": "",
         "executable": "",
@@ -120,8 +138,8 @@ def _parse_selected_command(task: dict[str, str], workers: int) -> dict[str, str
     format_values = {
         "input_fasta": task["input_fasta_path"],
         "alignment_fasta": task["output_path"],
-        "representative_input_fasta": task["input_fasta_path"],
-        "representative_alignment_fasta": task["input_fasta_path"],
+        "representative_input_fasta": task["representative_input_fasta_path"],
+        "representative_alignment_fasta": task["representative_input_fasta_path"],
         "fasttree_tree": task["output_path"],
         "iqtree_prefix": "",
         "threads": str(workers),
@@ -159,6 +177,9 @@ def _status_row(task: dict[str, str], status: str, *, exit_code: int | None = No
         "output_path": task["output_path"],
         "input_fasta_path": task["input_fasta_path"],
         "input_sha256": task["input_sha256"],
+        "representative_input_fasta_path": task["representative_input_fasta_path"],
+        "representative_input_sha256": task["representative_input_sha256"],
+        "representative_input_contract": task["representative_input_contract"],
         "command_template": task["command_template"],
         "selected_command": task["selected_command"],
         "executable": task["executable"],
@@ -185,6 +206,31 @@ def _task_key(task: dict[str, str]) -> tuple[str, str, str]:
     return (task["family_category"], task["route"], task["output_path"])
 
 
+def _is_phylogeny_executable(executable: str) -> bool:
+    """Recognize MAFFT, FastTree, and IQ-TREE names across paths/extensions."""
+
+    basename = executable.replace("\\", "/").rsplit("/", maxsplit=1)[-1].casefold()
+    if basename.endswith(".exe"):
+        basename = basename[:-4]
+    normalized = basename.replace("-", "").replace("_", "")
+    return any(marker in normalized for marker in ("mafft", "fasttree", "iqtree"))
+
+
+def _is_test_fixture_command(task: dict[str, str]) -> bool:
+    """Allow the non-preflight escape hatch only for a tiny local Python script."""
+
+    command_parts = task["command_parts"]
+    if len(command_parts) < 2:
+        return False
+    try:
+        if Path(task["executable"]).resolve() != Path(sys.executable).resolve():
+            return False
+    except OSError:
+        return False
+    script_path = Path(command_parts[1])
+    return script_path.is_file() and script_path.suffix == ".py" and script_path.stat().st_size <= 16 * 1024
+
+
 def _check_task(task: dict[str, str], *, workers: int, preflight_only: bool) -> tuple[dict[str, str] | None, dict[str, str]]:
     input_path = Path(task["input_fasta_path"])
     if not input_path.is_file() or input_path.stat().st_size == 0:
@@ -192,9 +238,10 @@ def _check_task(task: dict[str, str], *, workers: int, preflight_only: bool) -> 
     if _sha256(input_path) != task["input_sha256"]:
         return _status_row(task, "checksum_mismatch", notes="Input FASTA whole-file SHA-256 differs from the Task 3 manifest."), task
     task = _parse_selected_command(task, workers)
-    executable_name = Path(task["executable"]).name.lower()
-    if not preflight_only and executable_name in PHYLOGENY_EXECUTABLES:
+    if not preflight_only and _is_phylogeny_executable(task["executable"]):
         raise ValueError(f"non-preflight execution of phylogeny executable {task['executable']!r} is not authorized")
+    if not preflight_only and not _is_test_fixture_command(task):
+        raise ValueError("non-preflight execution is limited to an explicit sys.executable tiny test-fixture script")
     if not _executable_available(task["executable"]):
         return _status_row(task, "missing_executable", notes="Selected command executable was not found."), task
     if _output_is_complete(Path(task["output_path"])):
@@ -219,11 +266,14 @@ def run_manifest(
     *,
     workers: int = 1,
     preflight_only: bool = True,
+    allow_test_execution: bool = False,
 ) -> dict[str, int]:
     """Preflight, or unit-test-only run, the immutable Task 3 command manifest."""
 
     if workers < 1:
         raise ValueError("workers must be at least 1")
+    if not preflight_only and not allow_test_execution:
+        raise ValueError("non-preflight execution is limited to explicit unit-test fixtures")
     tasks = [_selected_task(job) for job in _load_manifest(Path(manifest_path))]
     keys = [_task_key(task) for task in tasks]
     if len(keys) != len(set(keys)):

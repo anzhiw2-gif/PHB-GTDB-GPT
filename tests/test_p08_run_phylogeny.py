@@ -7,6 +7,7 @@ import sys
 import tempfile
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from scripts import p08_run_phylogeny as runner
 
@@ -157,6 +158,49 @@ class P08RunPhylogenyTest(unittest.TestCase):
             self.assertEqual(rows[0]["status"], "preflight_ok")
             self.assertIn("not biological negative evidence", rows[0]["notes"])
 
+    def test_large_fasttree_preflight_verifies_full_family_input_before_representative_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            family_fasta = root / "family_full.faa"
+            family_sha256 = self._write_fasta(family_fasta, ">full\nMPEPTIDE\n")
+            representative_fasta = root / "representatives" / "family_representatives.faa"
+            output = root / "trees" / "family.fasttree.nwk"
+            row = self._row(
+                root,
+                family="large_family",
+                route="deterministic_representative_plan_then_fasttree_exploratory",
+                input_path=family_fasta,
+                input_sha256=family_sha256,
+                output_path=output,
+                command="FastTree -lg {representative_alignment_fasta} > {fasttree_tree}",
+            )
+            row["representative_input_fasta_path"] = str(representative_fasta)
+            manifest = self._write_manifest(root, [row])
+
+            with patch("scripts.p08_run_phylogeny._executable_available", return_value=True):
+                summary = runner.run_manifest(manifest, root / "status", preflight_only=True)
+
+            status = self._read_status(root / "status")[0]
+            self.assertEqual(summary["preflight_ok"], 1)
+            self.assertFalse(representative_fasta.exists())
+            self.assertEqual(status["input_fasta_path"], str(family_fasta))
+            self.assertEqual(status["input_sha256"], family_sha256)
+            self.assertEqual(status["representative_input_fasta_path"], str(representative_fasta))
+            self.assertEqual(status["representative_input_sha256"], "")
+            self.assertIn("independent representative SHA-256", status["representative_input_contract"])
+            self.assertIn(str(representative_fasta), status["selected_command"])
+            self.assertNotIn(str(family_fasta), status["selected_command"])
+
+    def test_manifest_requires_planned_not_run_command_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            row = self._row(root, command="p08_missing")
+            row["command_status"] = "completed"
+            manifest = self._write_manifest(root, [row])
+
+            with self.assertRaisesRegex(ValueError, "command_status=planned_not_run"):
+                runner.run_manifest(manifest, root / "status", preflight_only=True)
+
     def test_existing_nonempty_route_output_is_skipped(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -197,8 +241,8 @@ class P08RunPhylogenyTest(unittest.TestCase):
             command = f'"{sys.executable}" "{writer}" write "{output}"'
             manifest = self._write_manifest(root, [self._row(root, output_path=output, command=command)])
 
-            first = runner.run_manifest(manifest, root / "status", preflight_only=False)
-            second = runner.run_manifest(manifest, root / "status", preflight_only=False)
+            first = runner.run_manifest(manifest, root / "status", preflight_only=False, allow_test_execution=True)
+            second = runner.run_manifest(manifest, root / "status", preflight_only=False, allow_test_execution=True)
 
             self.assertEqual(first["completed"], 1)
             self.assertEqual(second["skipped_existing"], 1)
@@ -214,7 +258,7 @@ class P08RunPhylogenyTest(unittest.TestCase):
             no_output = self._row(root, family="no_output", output_path=missing_output, command=f'"{sys.executable}" "{writer}" noop "{missing_output}"')
             manifest = self._write_manifest(root, [failed, no_output])
 
-            summary = runner.run_manifest(manifest, root / "status", workers=2, preflight_only=False)
+            summary = runner.run_manifest(manifest, root / "status", workers=2, preflight_only=False, allow_test_execution=True)
 
             self.assertEqual(summary["failed_exit_code"], 1)
             self.assertEqual(summary["failed_missing_output"], 1)
@@ -222,11 +266,25 @@ class P08RunPhylogenyTest(unittest.TestCase):
     def test_nonpreflight_rejects_real_phylogeny_executables(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            for executable in ("mafft", "iqtree2", "FastTree"):
+            for executable in ("mafft", "iqtree2", "FastTree", "mafft.exe", "FastTree.exe", "iqtree2.exe", str(root / "bin" / "FastTree.exe")):
                 with self.subTest(executable=executable):
                     manifest = self._write_manifest(root, [self._row(root, command=f"{executable} --version")])
-                    with self.assertRaisesRegex(ValueError, "not authorized"):
-                        runner.run_manifest(manifest, root / "status", preflight_only=False)
+                    with patch("scripts.p08_run_phylogeny._executable_available", return_value=True):
+                        with patch("scripts.p08_run_phylogeny.subprocess.run") as run:
+                            with self.assertRaisesRegex(ValueError, "not authorized"):
+                                runner.run_manifest(manifest, root / "status", preflight_only=False, allow_test_execution=True)
+                    run.assert_not_called()
+
+    def test_nonpreflight_rejects_non_fixture_python_before_subprocess(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = self._write_manifest(root, [self._row(root, command=f'"{sys.executable}" -c "print(1)"')])
+
+            with patch("scripts.p08_run_phylogeny.subprocess.run") as run:
+                with self.assertRaisesRegex(ValueError, "test-fixture"):
+                    runner.run_manifest(manifest, root / "status", preflight_only=False, allow_test_execution=True)
+
+            run.assert_not_called()
 
     def test_cli_preflight_only_succeeds_without_executing_command(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
