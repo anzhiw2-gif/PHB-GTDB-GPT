@@ -2,7 +2,7 @@
 
 This module joins accepted P06 candidates to P07 sequence/annotation records,
 GTDB taxonomy, and checksum-verified P05 reference records.  It deliberately
-does not create FASTA, command, alignment, or tree artifacts.
+does not execute alignment, tree, or other external phylogeny tools.
 """
 
 from __future__ import annotations
@@ -27,6 +27,25 @@ P07_STATUS_FIELDS = ("tool", "fasta_shard", "status")
 REGISTRY_FIELDS = ("family_category", "approved_for_p06", "scan_permission", "model_sha256")
 SEED_FIELDS = ("family_category", "seed_id", "source_accession", "sequence_path", "sequence_sha256")
 CONTROL_FIELDS = ("family_category", "control_id", "control_role", "sequence_path", "sequence_sha256")
+FAMILY_INPUT_FIELDS = (
+    "family_category", "record_kind", "record_identity", "input_fasta_path", "input_sha256",
+    "source_path", "source_sha256", "model_sha256", "p06_proteome_shard", "p06_target_id",
+    "p07_sequence_id", "source_accession_or_assembly", "evidence_or_control_role",
+    "is_gtdb_candidate", "evidence_boundary",
+)
+COMMAND_FIELDS = (
+    "family_category", "command_status", "input_fasta_path", "input_sha256",
+    "candidate_input_record_count", "total_input_record_count", "route", "alignment_fasta_path",
+    "representative_input_fasta_path", "fasttree_tree_path", "iqtree_prefix", "representative_plan",
+    "mafft_template", "fasttree_template", "iqtree2_template", "iqtree2_annotation",
+    "rooting_policy", "evidence_boundary",
+)
+SUMMARY_FIELDS = (
+    "family_category", "candidate_count", "route", "family_fasta_path", "family_fasta_sha256",
+    "total_fasta_record_count",
+)
+ROOTING_POLICY = "explicit_accessioned_outgroup_required; otherwise midpoint_display_only"
+IQTREE2_TEMPLATE = "iqtree2 -s {alignment_fasta} -m TEST -B 1000 --prefix {iqtree_prefix}"
 
 
 def is_approved_model(row: Mapping[str, str]) -> bool:
@@ -41,6 +60,26 @@ def route_family_size(sequence_count: int) -> str:
     if sequence_count <= 2000:
         return "mafft_auto_then_review"
     return "deterministic_representative_plan_then_fasttree_exploratory"
+
+
+def planned_command_templates(candidate_count: int) -> dict[str, str]:
+    """Return unexecuted command templates appropriate to a candidate count."""
+    route = route_family_size(candidate_count)
+    templates = {
+        "route": route,
+        "mafft_template": "",
+        "fasttree_template": "",
+        "representative_plan": "",
+        "iqtree2_template": IQTREE2_TEMPLATE,
+    }
+    if route == "mafft_linsi_then_review":
+        templates["mafft_template"] = "mafft --localpair --maxiterate 1000 --thread {threads} --inputorder {input_fasta} > {alignment_fasta}"
+    elif route == "mafft_auto_then_review":
+        templates["mafft_template"] = "mafft --auto --thread {threads} --inputorder {input_fasta} > {alignment_fasta}"
+    else:
+        templates["representative_plan"] = "deterministic representative subset required before exploratory FastTree; no representative selection executed"
+        templates["fasttree_template"] = "FastTree -lg {representative_alignment_fasta} > {fasttree_tree}"
+    return templates
 
 
 def _write_tsv(path: Path, fields: Sequence[str], rows: Iterable[Mapping[str, object]]) -> None:
@@ -79,6 +118,63 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _read_fasta(path: Path) -> dict[str, str]:
+    """Read a simple unaligned protein FASTA and reject ambiguous records."""
+    records: dict[str, str] = {}
+    current_id: str | None = None
+    sequence_lines: list[str] = []
+
+    def finish_record() -> None:
+        if current_id is None:
+            return
+        sequence = "".join(sequence_lines)
+        if not sequence or any(not (residue.isalpha() or residue == "*") for residue in sequence):
+            raise ValueError("invalid or empty sequence")
+        if current_id in records:
+            raise ValueError(f"duplicate FASTA identifier: {current_id}")
+        records[current_id] = sequence.upper()
+
+    with path.open("r", encoding="utf-8") as handle:
+        for raw_line in handle:
+            line = raw_line.rstrip("\r\n")
+            if line.startswith(">"):
+                finish_record()
+                header = line[1:].strip()
+                current_id = header.split(maxsplit=1)[0] if header else ""
+                if not current_id:
+                    raise ValueError("empty FASTA identifier")
+                sequence_lines = []
+            elif not line.strip():
+                continue
+            elif current_id is None:
+                raise ValueError("sequence data before FASTA header")
+            else:
+                sequence_lines.append(line.strip())
+    finish_record()
+    if not records:
+        raise ValueError("no FASTA records")
+    return records
+
+
+def _fasta_safe(value: str) -> str:
+    """Return a deterministic non-opaque FASTA-header component."""
+    cleaned = "".join(character if character.isalnum() or character in "_.-" else "-" for character in value.strip())
+    return cleaned or "unknown"
+
+
+def _write_fasta(path: Path, records: Sequence[Mapping[str, str]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="\n") as handle:
+        for record in records:
+            header = "|".join((
+                _fasta_safe(record["record_kind"]),
+                _fasta_safe(record["record_id"]),
+                _fasta_safe(record["family_category"]),
+                _fasta_safe(record["source_accession_or_assembly"]),
+            ))
+            handle.write(f">{header}\n{record['sequence']}\n")
 
 
 def _assembly_accession(source_proteome_path: str) -> str:
@@ -162,12 +258,20 @@ def prepare_p08_inputs(
                 _fail(outdir, blocks, f"sequence file unreadable: {path}", family_category=row["family_category"], source_path=str(path), notes=str(error))
             if verified != row["sequence_sha256"]:
                 _fail(outdir, blocks, "SHA-256 mismatch", family_category=row["family_category"], source_path=str(path), notes=f"{identifier_field}={row[identifier_field]}")
+            try:
+                fasta_records = _read_fasta(path)
+            except (OSError, ValueError) as error:
+                _fail(outdir, blocks, "reference FASTA malformed", family_category=row["family_category"], source_path=str(path), notes=f"{identifier_field}={row[identifier_field]}; {error}")
+            if len(fasta_records) != 1:
+                _fail(outdir, blocks, "reference FASTA malformed", family_category=row["family_category"], source_path=str(path), notes=f"{identifier_field}={row[identifier_field]}; expected exactly one FASTA record")
             references_by_family[row["family_category"]].append({
-                "family_category": row["family_category"], "record_kind": record_kind, "record_id": row[identifier_field], "source_accession": row.get("source_accession", ""), "control_role": row.get("control_role", ""), "sequence_path": str(path), "sequence_sha256": row["sequence_sha256"], "verified_sha256": verified, "evidence": row.get("evidence", ""), "notes": row.get("notes", ""),
+                "family_category": row["family_category"], "record_kind": record_kind, "record_id": row[identifier_field], "source_accession": row.get("source_accession", ""), "control_role": row.get("control_role", ""), "sequence_path": str(path), "sequence_sha256": row["sequence_sha256"], "verified_sha256": verified, "evidence": row.get("evidence", ""), "notes": row.get("notes", ""), "sequence": next(iter(fasta_records.values())), "source_accession_or_assembly": row.get("source_accession", "") or row[identifier_field],
             })
 
     candidate_rows: list[dict[str, str]] = []
+    candidate_fasta_records: list[dict[str, str]] = []
     taxonomy_rows: list[dict[str, str]] = []
+    candidate_fasta_cache: dict[str, tuple[str, dict[str, str]]] = {}
     for p06 in selected:
         family = p06["family_category"]
         family_references = references_by_family[family]
@@ -181,6 +285,22 @@ def prepare_p08_inputs(
             _fail(outdir, blocks, "missing P07 sequence match", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=str(p07_sequence_table))
         if p06["target_length"] != p07["target_length_from_p06"] or p06["target_length"] != p07["sequence_length"]:
             _fail(outdir, blocks, "P06/P07 sequence length mismatch", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=str(p07_sequence_table))
+        fasta_path = Path(p07["fasta_shard"])
+        cached = candidate_fasta_cache.get(str(fasta_path))
+        if cached is None:
+            try:
+                cached = (_sha256(fasta_path), _read_fasta(fasta_path))
+            except OSError as error:
+                _fail(outdir, blocks, "candidate FASTA unreadable", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=str(fasta_path), notes=str(error))
+            except ValueError as error:
+                _fail(outdir, blocks, "candidate FASTA malformed", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=str(fasta_path), notes=str(error))
+            candidate_fasta_cache[str(fasta_path)] = cached
+        fasta_sha256, candidate_source_records = cached
+        sequence = candidate_source_records.get(p07["p07_sequence_id"])
+        if sequence is None:
+            _fail(outdir, blocks, "candidate FASTA missing p07_sequence_id", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=str(fasta_path), notes=f"p07_sequence_id={p07['p07_sequence_id']}")
+        if len(sequence) != int(p06["target_length"]):
+            _fail(outdir, blocks, "candidate FASTA sequence length mismatch", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=str(fasta_path), notes=f"p07_sequence_id={p07['p07_sequence_id']}; expected_length={p06['target_length']}; fasta_length={len(sequence)}")
         shard_stem = Path(p07["fasta_shard"]).stem
         status_detail = "; ".join(f"{tool}={statuses.get((tool, shard_stem), 'missing')}" for tool in REQUIRED_P07_TOOLS)
         if any(statuses.get((tool, shard_stem)) not in {"completed", "skipped_existing"} for tool in REQUIRED_P07_TOOLS):
@@ -194,22 +314,85 @@ def prepare_p08_inputs(
             "p07_sequence_id": p07["p07_sequence_id"], "source_proteome_path": p07["source_proteome_path"], "fasta_shard": p07["fasta_shard"], "p07_annotation_status": "completed", "assembly_accession": assembly_accession, "taxonomy_lineage": lineage, "model_sha256": approved_models[family]["model_sha256"], "evidence_boundary": EVIDENCE_BOUNDARY,
         }
         candidate_rows.append(candidate)
+        candidate_fasta_records.append({
+            "family_category": family, "record_kind": "candidate", "record_id": p07["p07_sequence_id"],
+            "sequence": sequence, "source_path": str(fasta_path), "source_sha256": fasta_sha256,
+            "model_sha256": approved_models[family]["model_sha256"], "p06_proteome_shard": p06["proteome_shard"],
+            "p06_target_id": p06["target_id"], "p07_sequence_id": p07["p07_sequence_id"],
+            "source_accession_or_assembly": assembly_accession, "evidence_or_control_role": p06["tier"],
+            "is_gtdb_candidate": "yes",
+        })
         taxonomy_rows.append({"family_category": family, "proteome_shard": p06["proteome_shard"], "target_id": p06["target_id"], "assembly_accession": assembly_accession, "taxonomy_lineage": lineage})
 
     sort_key = lambda row: (row["family_category"], row["proteome_shard"], row["target_id"])
     candidate_rows.sort(key=sort_key)
     taxonomy_rows.sort(key=sort_key)
     reference_rows = sorted((row for family in {row["family_category"] for row in selected} for row in references_by_family[family]), key=lambda row: (row["family_category"], row["record_kind"], row["record_id"]))
-    summary_rows = [{"family_category": family, "candidate_count": str(sum(row["family_category"] == family for row in candidate_rows)), "route": route_family_size(sum(row["family_category"] == family for row in candidate_rows))} for family in sorted({row["family_category"] for row in candidate_rows})]
-
     outputs = {
         "candidate_manifest": outdir / "manifests" / "p08_candidate_manifest.tsv",
         "taxonomy_join": outdir / "gtdb_mapping" / "p08_taxonomy_join.tsv",
         "family_reference_manifest": outdir / "manifests" / "p08_family_reference_manifest.tsv",
         "preparation_summary": outdir / "manifests" / "p08_preparation_summary.tsv",
+        "family_input_manifest": outdir / "manifests" / "p08_family_input_manifest.tsv",
+        "phylogeny_command_manifest": outdir / "manifests" / "p08_phylogeny_command_manifest.tsv",
     }
+    family_input_rows: list[dict[str, str]] = []
+    command_rows: list[dict[str, str]] = []
+    summary_rows: list[dict[str, str]] = []
+    kind_order = {"candidate": 0, "seed": 1, "control": 2}
+    for family in sorted({row["family_category"] for row in candidate_rows}):
+        candidate_inputs = [row for row in candidate_fasta_records if row["family_category"] == family]
+        reference_inputs = []
+        for reference in references_by_family[family]:
+            reference_inputs.append({
+                "family_category": family, "record_kind": reference["record_kind"], "record_id": reference["record_id"],
+                "sequence": reference["sequence"], "source_path": reference["sequence_path"],
+                "source_sha256": reference["verified_sha256"], "model_sha256": approved_models[family]["model_sha256"],
+                "p06_proteome_shard": "", "p06_target_id": "", "p07_sequence_id": "",
+                "source_accession_or_assembly": reference["source_accession_or_assembly"],
+                "evidence_or_control_role": reference["control_role"] or reference["evidence"], "is_gtdb_candidate": "no",
+            })
+        family_inputs = sorted(candidate_inputs + reference_inputs, key=lambda row: (kind_order[row["record_kind"]], row["record_id"], row["source_path"]))
+        fasta_path = outdir / "family_fastas" / f"{family}.faa"
+        _write_fasta(fasta_path, family_inputs)
+        input_sha256 = _sha256(fasta_path)
+        for input_row in family_inputs:
+            record_identity = "|".join((input_row["record_kind"], family, input_row["p06_proteome_shard"], input_row["p06_target_id"], input_row["record_id"]))
+            family_input_rows.append({
+                "family_category": family, "record_kind": input_row["record_kind"], "record_identity": record_identity,
+                "input_fasta_path": str(fasta_path), "input_sha256": input_sha256, "source_path": input_row["source_path"],
+                "source_sha256": input_row["source_sha256"], "model_sha256": input_row["model_sha256"],
+                "p06_proteome_shard": input_row["p06_proteome_shard"], "p06_target_id": input_row["p06_target_id"],
+                "p07_sequence_id": input_row["p07_sequence_id"], "source_accession_or_assembly": input_row["source_accession_or_assembly"],
+                "evidence_or_control_role": input_row["evidence_or_control_role"], "is_gtdb_candidate": input_row["is_gtdb_candidate"],
+                "evidence_boundary": EVIDENCE_BOUNDARY,
+            })
+        candidate_count = len(candidate_inputs)
+        templates = planned_command_templates(candidate_count)
+        alignment_fasta = outdir / "alignments" / f"{family}.aligned.faa"
+        representative_input = outdir / "review" / f"{family}.representative_input.faa"
+        fasttree_tree = outdir / "trees" / f"{family}.fasttree.nwk"
+        iqtree_prefix = outdir / "trees" / family
+        command_rows.append({
+            "family_category": family, "command_status": "planned_not_run", "input_fasta_path": str(fasta_path),
+            "input_sha256": input_sha256, "candidate_input_record_count": str(candidate_count),
+            "total_input_record_count": str(len(family_inputs)), "route": templates["route"],
+            "alignment_fasta_path": str(alignment_fasta), "representative_input_fasta_path": str(representative_input),
+            "fasttree_tree_path": str(fasttree_tree), "iqtree_prefix": str(iqtree_prefix),
+            "representative_plan": templates["representative_plan"], "mafft_template": templates["mafft_template"],
+            "fasttree_template": templates["fasttree_template"], "iqtree2_template": templates["iqtree2_template"],
+            "iqtree2_annotation": "requires_independent_subset_and_outgroup_approval", "rooting_policy": ROOTING_POLICY,
+            "evidence_boundary": EVIDENCE_BOUNDARY,
+        })
+        summary_rows.append({
+            "family_category": family, "candidate_count": str(candidate_count), "route": templates["route"],
+            "family_fasta_path": str(fasta_path), "family_fasta_sha256": input_sha256,
+            "total_fasta_record_count": str(len(family_inputs)),
+        })
     _write_tsv(outputs["candidate_manifest"], tuple(candidate_rows[0]), candidate_rows)
     _write_tsv(outputs["taxonomy_join"], ("family_category", "proteome_shard", "target_id", "assembly_accession", "taxonomy_lineage"), taxonomy_rows)
     _write_tsv(outputs["family_reference_manifest"], ("family_category", "record_kind", "record_id", "source_accession", "control_role", "sequence_path", "sequence_sha256", "verified_sha256", "evidence", "notes"), reference_rows)
-    _write_tsv(outputs["preparation_summary"], ("family_category", "candidate_count", "route"), summary_rows)
+    _write_tsv(outputs["preparation_summary"], SUMMARY_FIELDS, summary_rows)
+    _write_tsv(outputs["family_input_manifest"], FAMILY_INPUT_FIELDS, sorted(family_input_rows, key=lambda row: (row["family_category"], kind_order[row["record_kind"]], row["record_identity"])))
+    _write_tsv(outputs["phylogeny_command_manifest"], COMMAND_FIELDS, command_rows)
     return outputs

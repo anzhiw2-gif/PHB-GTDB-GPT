@@ -12,6 +12,7 @@ from unittest.mock import patch
 from scripts.p08_prepare_phylogeny import (
     DEFAULT_INCLUDE_TIERS,
     REQUIRED_P07_TOOLS,
+    planned_command_templates,
     prepare_p08_inputs,
     route_family_size,
 )
@@ -67,6 +68,8 @@ class PrepareP08InputsTests(unittest.TestCase):
         self.control_bacterial = self._sequence_file("control_bacterial.faa", ">control-b\nAAAA\n")
         self.seed_archaeal = self._sequence_file("seed_archaeal.faa", ">seed-a\nMKKK\n")
         self.control_archaeal = self._sequence_file("control_archaeal.faa", ">control-a\nVVVV\n")
+        self.p07_bacterial = self._sequence_file("p07_bacterial.faa", ">p07-bac1 arbitrary_source_header\nMPEPTIDE\n>p07-review1\nMPEPTI\n")
+        self.p07_archaeal = self._sequence_file("p07_archaeal.faa", ">p07-arc1\nMKKK\n")
         self._write_complete_fixture()
 
     def tearDown(self) -> None:
@@ -95,9 +98,9 @@ class PrepareP08InputsTests(unittest.TestCase):
             self.p07_sequences,
             P07_SEQUENCE_FIELDS,
             [
-                {"p07_sequence_id": "p07-arc1", "proteome_shard": "part_b", "target_id": "arc1", "source_proteome_path": "/machine/RS_GCF_000002.faa.gz", "target_length_from_p06": "4", "sequence_length": "4", "family_categories": "archaeal_patatin_like_pha_dep", "fasta_shard": "/machine/p07_arc.fa"},
-                {"p07_sequence_id": "p07-bac1", "proteome_shard": "part_a", "target_id": "bac1", "source_proteome_path": "/machine/GB_GCF_000001.faa.gz", "target_length_from_p06": "8", "sequence_length": "8", "family_categories": "extracellular_pha_depolymerase_core", "fasta_shard": "/machine/p07_bac.fa"},
-                {"p07_sequence_id": "p07-review1", "proteome_shard": "part_a", "target_id": "review1", "source_proteome_path": "/machine/GB_GCF_000001.faa.gz", "target_length_from_p06": "6", "sequence_length": "6", "family_categories": "extracellular_pha_depolymerase_core", "fasta_shard": "/machine/p07_bac.fa"},
+                {"p07_sequence_id": "p07-arc1", "proteome_shard": "part_b", "target_id": "arc1", "source_proteome_path": "/machine/RS_GCF_000002.faa.gz", "target_length_from_p06": "4", "sequence_length": "4", "family_categories": "archaeal_patatin_like_pha_dep", "fasta_shard": str(self.p07_archaeal)},
+                {"p07_sequence_id": "p07-bac1", "proteome_shard": "part_a", "target_id": "bac1", "source_proteome_path": "/machine/GB_GCF_000001.faa.gz", "target_length_from_p06": "8", "sequence_length": "8", "family_categories": "extracellular_pha_depolymerase_core", "fasta_shard": str(self.p07_bacterial)},
+                {"p07_sequence_id": "p07-review1", "proteome_shard": "part_a", "target_id": "review1", "source_proteome_path": "/machine/GB_GCF_000001.faa.gz", "target_length_from_p06": "6", "sequence_length": "6", "family_categories": "extracellular_pha_depolymerase_core", "fasta_shard": str(self.p07_bacterial)},
             ],
         )
         write_tsv(
@@ -106,7 +109,7 @@ class PrepareP08InputsTests(unittest.TestCase):
             [
                 {"tool": tool, "fasta_shard": shard, "status": "completed"}
                 for tool in REQUIRED_P07_TOOLS
-                for shard in ("/machine/p07_arc.fa", "/machine/p07_bac.fa")
+                for shard in (str(self.p07_archaeal), str(self.p07_bacterial))
             ],
         )
         write_tsv(
@@ -193,7 +196,7 @@ class PrepareP08InputsTests(unittest.TestCase):
             self._prepare()
 
     def test_missing_p07_tool_status_blocks_with_candidate_and_status_details(self) -> None:
-        rows = [row for row in read_tsv(self.p07_status) if not (row["tool"] == "InterProScan" and row["fasta_shard"] == "/machine/p07_arc.fa")]
+        rows = [row for row in read_tsv(self.p07_status) if not (row["tool"] == "InterProScan" and row["fasta_shard"] == str(self.p07_archaeal))]
         write_tsv(self.p07_status, ("tool", "fasta_shard", "status"), rows)
         with self.assertRaisesRegex(ValueError, "P07 annotation status requirement failed"):
             self._prepare()
@@ -254,6 +257,109 @@ class PrepareP08InputsTests(unittest.TestCase):
         self.assertEqual(route_family_size(199), "mafft_linsi_then_review")
         self.assertEqual(route_family_size(200), "mafft_auto_then_review")
         self.assertEqual(route_family_size(2001), "deterministic_representative_plan_then_fasttree_exploratory")
+
+    def test_planned_command_templates_route_at_required_boundaries(self) -> None:
+        self.assertEqual(
+            planned_command_templates(199)["mafft_template"],
+            "mafft --localpair --maxiterate 1000 --thread {threads} --inputorder {input_fasta} > {alignment_fasta}",
+        )
+        self.assertEqual(
+            planned_command_templates(200)["mafft_template"],
+            "mafft --auto --thread {threads} --inputorder {input_fasta} > {alignment_fasta}",
+        )
+        large = planned_command_templates(2001)
+        self.assertEqual(large["fasttree_template"], "FastTree -lg {representative_alignment_fasta} > {fasttree_tree}")
+        self.assertIn("deterministic", large["representative_plan"])
+        self.assertEqual(
+            large["iqtree2_template"],
+            "iqtree2 -s {alignment_fasta} -m TEST -B 1000 --prefix {iqtree_prefix}",
+        )
+
+    def test_preparation_writes_deterministic_family_fastas_and_planned_command_manifest(self) -> None:
+        with patch("scripts.p08_prepare_phylogeny.subprocess.run") as run:
+            outputs = self._prepare()
+        run.assert_not_called()
+        self.assertIn("family_input_manifest", outputs)
+        self.assertIn("phylogeny_command_manifest", outputs)
+
+        bacterial_fasta = self.outdir / "family_fastas" / "extracellular_pha_depolymerase_core.faa"
+        self.assertEqual(
+            bacterial_fasta.read_text(encoding="utf-8"),
+            ">candidate|p07-bac1|extracellular_pha_depolymerase_core|GCF_000001\nMPEPTIDE\n"
+            ">seed|seed-bac|extracellular_pha_depolymerase_core|BAC1\nMPEPTIDE\n"
+            ">control|control-bac|extracellular_pha_depolymerase_core|control-bac\nAAAA\n",
+        )
+        input_rows = read_tsv(outputs["family_input_manifest"])
+        bacterial_rows = [row for row in input_rows if row["family_category"] == "extracellular_pha_depolymerase_core"]
+        self.assertEqual([row["record_kind"] for row in bacterial_rows], ["candidate", "seed", "control"])
+        self.assertEqual([row["is_gtdb_candidate"] for row in bacterial_rows], ["yes", "no", "no"])
+        self.assertTrue(all(row["input_fasta_path"] == str(bacterial_fasta) for row in bacterial_rows))
+        self.assertEqual({row["input_sha256"] for row in bacterial_rows}, {self._sha256(bacterial_fasta)})
+        self.assertTrue(all(row["evidence_boundary"] == "sequence_and_annotation_evidence_only_not_phenotype_proof" for row in input_rows))
+
+        command_rows = read_tsv(outputs["phylogeny_command_manifest"])
+        self.assertTrue(all(row["command_status"] == "planned_not_run" for row in command_rows))
+        self.assertTrue(all(row["rooting_policy"] == "explicit_accessioned_outgroup_required; otherwise midpoint_display_only" for row in command_rows))
+        bacterial_command = next(row for row in command_rows if row["family_category"] == "extracellular_pha_depolymerase_core")
+        self.assertEqual(bacterial_command["candidate_input_record_count"], "1")
+        self.assertEqual(bacterial_command["total_input_record_count"], "3")
+        self.assertEqual(bacterial_command["route"], "mafft_linsi_then_review")
+        self.assertEqual(
+            bacterial_command["mafft_template"],
+            "mafft --localpair --maxiterate 1000 --thread {threads} --inputorder {input_fasta} > {alignment_fasta}",
+        )
+        self.assertEqual(
+            bacterial_command["iqtree2_template"],
+            "iqtree2 -s {alignment_fasta} -m TEST -B 1000 --prefix {iqtree_prefix}",
+        )
+        self.assertEqual(bacterial_command["iqtree2_annotation"], "requires_independent_subset_and_outgroup_approval")
+
+        summary_rows = read_tsv(outputs["preparation_summary"])
+        bacterial_summary = next(row for row in summary_rows if row["family_category"] == "extracellular_pha_depolymerase_core")
+        self.assertEqual(bacterial_summary["family_fasta_path"], str(bacterial_fasta))
+        self.assertEqual(bacterial_summary["family_fasta_sha256"], self._sha256(bacterial_fasta))
+        self.assertEqual(bacterial_summary["total_fasta_record_count"], "3")
+
+    def test_missing_candidate_fasta_blocks_and_writes_review(self) -> None:
+        self.p07_archaeal.unlink()
+        with self.assertRaisesRegex(ValueError, "candidate FASTA unreadable"):
+            self._prepare()
+        blocks = read_tsv(self.outdir / "review" / "p08_blocked_records.tsv")
+        self.assertTrue(any(row["reason"] == "candidate FASTA unreadable" for row in blocks))
+
+    def test_absent_p07_sequence_id_blocks_and_writes_review(self) -> None:
+        self.p07_archaeal.write_text(">another-record\nMKKK\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "candidate FASTA missing p07_sequence_id"):
+            self._prepare()
+        blocks = read_tsv(self.outdir / "review" / "p08_blocked_records.tsv")
+        self.assertTrue(any(row["reason"] == "candidate FASTA missing p07_sequence_id" for row in blocks))
+
+    def test_candidate_fasta_length_mismatch_blocks_and_writes_review(self) -> None:
+        self.p07_archaeal.write_text(">p07-arc1\nMKKKK\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "candidate FASTA sequence length mismatch"):
+            self._prepare()
+        blocks = read_tsv(self.outdir / "review" / "p08_blocked_records.tsv")
+        self.assertTrue(any(row["reason"] == "candidate FASTA sequence length mismatch" for row in blocks))
+
+    def test_malformed_or_checksum_conflicting_reference_blocks_and_writes_review(self) -> None:
+        self.seed_archaeal.write_text("MKKK\n", encoding="utf-8")
+        rows = read_tsv(self.seeds)
+        rows[0]["sequence_sha256"] = self._sha256(self.seed_archaeal)
+        write_tsv(self.seeds, tuple(rows[0].keys()), rows)
+        with self.assertRaisesRegex(ValueError, "reference FASTA malformed"):
+            self._prepare()
+        blocks = read_tsv(self.outdir / "review" / "p08_blocked_records.tsv")
+        self.assertTrue(any(row["reason"] == "reference FASTA malformed" for row in blocks))
+
+        checksum_outdir = self.root / "checksum-conflict"
+        self._write_complete_fixture()
+        rows = read_tsv(self.seeds)
+        rows[0]["sequence_sha256"] = "0" * 64
+        write_tsv(self.seeds, tuple(rows[0].keys()), rows)
+        with self.assertRaisesRegex(ValueError, "SHA-256 mismatch"):
+            self._prepare(outdir=checksum_outdir)
+        checksum_blocks = read_tsv(checksum_outdir / "review" / "p08_blocked_records.tsv")
+        self.assertTrue(any(row["reason"] == "SHA-256 mismatch" for row in checksum_blocks))
 
     def test_prepare_p08_inputs_never_calls_subprocess_run(self) -> None:
         with patch("scripts.p08_prepare_phylogeny.subprocess.run") as run:
