@@ -18,6 +18,7 @@ from scripts.p08_prepare_phylogeny import (
     prepare_p08_inputs,
     route_family_size,
 )
+from scripts import p08_prepare_phylogeny as preparer
 
 
 P06_FIELDS = (
@@ -28,6 +29,8 @@ P06_FIELDS = (
     "target_length",
     "full_sequence_score",
     "hmm_coverage",
+    "calibrated_full_score_threshold",
+    "calibrated_hmm_coverage_threshold",
     "tier",
 )
 P07_SEQUENCE_FIELDS = (
@@ -40,6 +43,7 @@ P07_SEQUENCE_FIELDS = (
     "family_categories",
     "fasta_shard",
 )
+P07_STATUS_FIELDS = ("tool", "fasta_shard", "input_fasta", "output_path", "status")
 
 
 def write_tsv(path: Path, fields: tuple[str, ...], rows: list[dict[str, str]]) -> None:
@@ -60,6 +64,9 @@ class PrepareP08InputsTests(unittest.TestCase):
         self.root = Path(self.tempdir.name)
         self.outdir = self.root / "p08"
         self.p06 = self.root / "p06.tsv"
+        self.p06_scan_manifest = self.root / "p06_scan_manifest.tsv"
+        self.p03_prediction_manifest = self.root / "p03_prediction_manifest.tsv"
+        self.p03_prediction_qc = self.root / "p03_prediction_qc.tsv"
         self.p07_sequences = self.root / "p07_sequences.tsv"
         self.p07_status = self.root / "p07_status.tsv"
         self.registry = self.root / "registry.tsv"
@@ -91,9 +98,9 @@ class PrepareP08InputsTests(unittest.TestCase):
             self.p06,
             P06_FIELDS,
             [
-                {"family_category": "archaeal_patatin_like_pha_dep", "proteome_shard": "part_b", "target_id": "arc1", "target_accession": "arc-accession", "target_length": "4", "full_sequence_score": "200.0", "hmm_coverage": "0.8", "tier": "High-confidence"},
-                {"family_category": "extracellular_pha_depolymerase_core", "proteome_shard": "part_a", "target_id": "bac1", "target_accession": "bac-accession", "target_length": "8", "full_sequence_score": "180.0", "hmm_coverage": "0.7", "tier": "High-confidence"},
-                {"family_category": "extracellular_pha_depolymerase_core", "proteome_shard": "part_a", "target_id": "review1", "target_accession": "review-accession", "target_length": "6", "full_sequence_score": "160.0", "hmm_coverage": "0.5", "tier": "Review"},
+                {"family_category": "archaeal_patatin_like_pha_dep", "proteome_shard": "part_b", "target_id": "arc1", "target_accession": "arc-accession", "target_length": "4", "full_sequence_score": "200.0", "hmm_coverage": "0.8", "calibrated_full_score_threshold": "159.9", "calibrated_hmm_coverage_threshold": "0.405498", "tier": "High-confidence"},
+                {"family_category": "extracellular_pha_depolymerase_core", "proteome_shard": "part_a", "target_id": "bac1", "target_accession": "bac-accession", "target_length": "8", "full_sequence_score": "180.0", "hmm_coverage": "0.7", "calibrated_full_score_threshold": "159.9", "calibrated_hmm_coverage_threshold": "0.405498", "tier": "High-confidence"},
+                {"family_category": "extracellular_pha_depolymerase_core", "proteome_shard": "part_a", "target_id": "review1", "target_accession": "review-accession", "target_length": "6", "full_sequence_score": "160.0", "hmm_coverage": "0.5", "calibrated_full_score_threshold": "159.9", "calibrated_hmm_coverage_threshold": "0.405498", "tier": "Review"},
             ],
         )
         write_tsv(
@@ -107,9 +114,9 @@ class PrepareP08InputsTests(unittest.TestCase):
         )
         write_tsv(
             self.p07_status,
-            ("tool", "fasta_shard", "status"),
+            P07_STATUS_FIELDS,
             [
-                {"tool": tool, "fasta_shard": shard, "status": "completed"}
+                {"tool": tool, "fasta_shard": shard, "input_fasta": shard, "output_path": str(self.root / "annotations" / tool / Path(shard).stem), "status": "completed"}
                 for tool in REQUIRED_P07_TOOLS
                 for shard in (str(self.p07_archaeal), str(self.p07_bacterial))
             ],
@@ -132,32 +139,42 @@ class PrepareP08InputsTests(unittest.TestCase):
         )
         write_tsv(
             self.controls,
-            ("family_category", "model_sha256", "control_id", "control_role", "sequence_path", "sequence_sha256", "evidence", "notes"),
+            ("family_category", "model_sha256", "control_id", "control_role", "sequence_path", "sequence_sha256", "source_checksum_kind", "evidence", "notes"),
             [
-                {"family_category": "archaeal_patatin_like_pha_dep", "model_sha256": "a" * 64, "control_id": "control-arc", "control_role": "hard_negative", "sequence_path": str(self.control_archaeal), "sequence_sha256": self._sha256(self.control_archaeal), "evidence": "control", "notes": "archaeal control"},
-                {"family_category": "extracellular_pha_depolymerase_core", "model_sha256": "b" * 64, "control_id": "control-bac", "control_role": "hard_negative", "sequence_path": str(self.control_bacterial), "sequence_sha256": self._sha256(self.control_bacterial), "evidence": "control", "notes": "bacterial control"},
+                {"family_category": "archaeal_patatin_like_pha_dep", "model_sha256": "a" * 64, "control_id": "control-arc", "control_role": "hard_negative", "sequence_path": str(self.control_archaeal), "sequence_sha256": self._sha256(self.control_archaeal), "source_checksum_kind": "file_sha256", "evidence": "control", "notes": "archaeal control"},
+                {"family_category": "extracellular_pha_depolymerase_core", "model_sha256": "b" * 64, "control_id": "control-bac", "control_role": "hard_negative", "sequence_path": str(self.control_bacterial), "sequence_sha256": self._sha256(self.control_bacterial), "source_checksum_kind": "file_sha256", "evidence": "control", "notes": "bacterial control"},
             ],
         )
+        self.p06_scan_manifest.write_text("fixture P06 scan manifest\n", encoding="utf-8")
+        p03_rows = [
+            {"accession": "GCF_000001", "faa_path": "/machine/GB_GCF_000001.faa.gz", "status": "ok"},
+            {"accession": "GCF_000002", "faa_path": "/machine/RS_GCF_000002.faa.gz", "status": "ok"},
+        ]
+        write_tsv(self.p03_prediction_manifest, ("accession", "faa_path", "status"), p03_rows)
+        write_tsv(self.p03_prediction_qc, ("accession", "faa_path", "status"), p03_rows)
         self.taxonomy.write_text("GCF_000001\td__Bacteria;p__Test\nGCF_000002\td__Archaea;p__Test\n", encoding="utf-8")
 
     def _write_authoritative_core_reference_view(self) -> tuple[Path, Path]:
         """Replace synthetic core rows with the tracked legacy/core split schema."""
         source_families = (
-            ("extracellular_mcl_pha_dep", "c" * 64, 6),
-            ("extracellular_scl_pha_dep_type_I", "d" * 64, 6),
-            ("extracellular_scl_pha_dep_type_II", "e" * 64, 5),
+            ("archaeal_patatin_like_pha_dep", "a" * 64, 6, "yes", "approved"),
+            ("intracellular_mcl_pha_dep", "f" * 64, 4, "yes", "approved"),
+            ("intracellular_phaZ_no_lipase_box", "g" * 64, 5, "yes", "approved"),
+            ("extracellular_mcl_pha_dep", "c" * 64, 6, "no", "blocked"),
+            ("extracellular_scl_pha_dep_type_I", "d" * 64, 6, "no", "blocked"),
+            ("extracellular_scl_pha_dep_type_II", "e" * 64, 5, "no", "blocked"),
         )
-        registry_rows = read_tsv(self.registry)
+        registry_rows = [row for row in read_tsv(self.registry) if row["family_category"] == "extracellular_pha_depolymerase_core"]
         registry_rows.extend(
-            {"family_category": family, "approved_for_p06": "no", "scan_permission": "blocked", "model_sha256": model_sha}
-            for family, model_sha, _ in source_families
+            {"family_category": family, "approved_for_p06": approved, "scan_permission": permission, "model_sha256": model_sha}
+            for family, model_sha, _, approved, permission in source_families
         )
         write_tsv(self.registry, tuple(registry_rows[0].keys()), registry_rows)
 
-        seed_rows = [row for row in read_tsv(self.seeds) if row["family_category"] != "extracellular_pha_depolymerase_core"]
+        seed_rows: list[dict[str, str]] = []
         core_rows: list[dict[str, str]] = []
         index = 1
-        for family, model_sha, count in source_families:
+        for family, model_sha, count, approved, _ in source_families:
             for _ in range(count):
                 accession = f"CORE{index:02d}"
                 source = self._sequence_file(f"{accession}.faa", f">source-{accession}\nMPEPTIDE\n")
@@ -171,13 +188,14 @@ class PrepareP08InputsTests(unittest.TestCase):
                     "evidence": "E1",
                     "notes": "legacy extracellular source seed",
                 })
-                core_rows.append({
-                    "family_category": "extracellular_pha_depolymerase_core",
-                    "model_sha256": "b" * 64,
-                    "seed_id": f"core-{accession}",
-                    "source_accession": accession,
-                    "sequence_path": str(source),
-                })
+                if approved == "no":
+                    core_rows.append({
+                        "family_category": "extracellular_pha_depolymerase_core",
+                        "model_sha256": "b" * 64,
+                        "seed_id": f"core-{accession}",
+                        "source_accession": accession,
+                        "sequence_path": str(source),
+                    })
                 index += 1
         write_tsv(self.seeds, tuple(seed_rows[0].keys()), seed_rows)
 
@@ -186,16 +204,20 @@ class PrepareP08InputsTests(unittest.TestCase):
         core_seed_registry = self.root / "p05_extracellular_core_seed_registry.tsv"
         write_tsv(core_seed_registry, ("family_category", "model_sha256", "seed_id", "source_accession", "sequence_path"), core_rows)
         close_controls = self.root / "p05_extracellular_core_close_controls.tsv"
-        residue_sha = hashlib.sha256(b"AAAA").hexdigest()
+        close_rows = []
+        for index in range(1, 6):
+            close_path = self._sequence_file(f"CLOSE{index}.faa", f">close-{index}\nAAAA{index * 'A'}\n")
+            residue_sha = hashlib.sha256(("AAAA" + index * "A").encode("ascii")).hexdigest()
+            close_rows.append({
+                "family_category": "cutinase_like_non_target",
+                "source_accession": f"CLOSE{index}",
+                "sequence_path": str(close_path),
+                "notes": f"Hard close non-target control; residue SHA256 is {residue_sha}.",
+            })
         write_tsv(
             close_controls,
             ("family_category", "source_accession", "sequence_path", "notes"),
-            [{
-                "family_category": "cutinase_like_non_target",
-                "source_accession": "CLOSE1",
-                "sequence_path": str(self.control_bacterial),
-                "notes": f"Hard close non-target control; residue SHA256 is {residue_sha}.",
-            }],
+            close_rows,
         )
         return core_seed_registry, close_controls
 
@@ -214,6 +236,8 @@ class PrepareP08InputsTests(unittest.TestCase):
                 "target_length": "1",
                 "full_sequence_score": "200.0",
                 "hmm_coverage": "0.9",
+                "calibrated_full_score_threshold": "159.9",
+                "calibrated_hmm_coverage_threshold": "0.405498",
                 "tier": "High-confidence",
             })
             p07_rows.append({
@@ -230,8 +254,8 @@ class PrepareP08InputsTests(unittest.TestCase):
         write_tsv(self.p07_sequences, P07_SEQUENCE_FIELDS, p07_rows)
 
         status_rows = read_tsv(self.p07_status)
-        status_rows.extend({"tool": tool, "fasta_shard": str(fasta), "status": "completed"} for tool in REQUIRED_P07_TOOLS)
-        write_tsv(self.p07_status, ("tool", "fasta_shard", "status"), status_rows)
+        status_rows.extend({"tool": tool, "fasta_shard": str(fasta), "input_fasta": str(fasta), "output_path": str(self.root / "annotations" / tool / fasta.stem), "status": "completed"} for tool in REQUIRED_P07_TOOLS)
+        write_tsv(self.p07_status, P07_STATUS_FIELDS, status_rows)
 
         model_sha = hashlib.sha256(family.encode("ascii")).hexdigest()
         registry_rows = read_tsv(self.registry)
@@ -243,13 +267,17 @@ class PrepareP08InputsTests(unittest.TestCase):
         seed_rows.append({"family_category": family, "model_sha256": model_sha, "seed_id": f"seed-{family}", "source_accession": f"SEED-{family}", "sequence_path": str(seed), "sequence_sha256": self._sha256(seed), "evidence": "E1", "notes": "route seed"})
         write_tsv(self.seeds, tuple(seed_rows[0].keys()), seed_rows)
         control_rows = read_tsv(self.controls)
-        control_rows.append({"family_category": family, "model_sha256": model_sha, "control_id": f"control-{family}", "control_role": "hard_negative", "sequence_path": str(control), "sequence_sha256": self._sha256(control), "evidence": "control", "notes": "route control"})
+        control_rows.append({"family_category": family, "model_sha256": model_sha, "control_id": f"control-{family}", "control_role": "hard_negative", "sequence_path": str(control), "sequence_sha256": self._sha256(control), "source_checksum_kind": "file_sha256", "evidence": "control", "notes": "route control"})
         write_tsv(self.controls, tuple(control_rows[0].keys()), control_rows)
 
     def _prepare(self, **kwargs: object) -> dict[str, Path]:
         outdir = kwargs.pop("outdir", self.outdir)
         return prepare_p08_inputs(
             p06_candidate_table=self.p06,
+            gtdb_release="GTDB_R232",
+            p06_scan_manifest=self.p06_scan_manifest,
+            p03_prediction_manifest=self.p03_prediction_manifest,
+            p03_prediction_qc=self.p03_prediction_qc,
             p07_sequence_table=self.p07_sequences,
             p07_status_table=self.p07_status,
             p05_model_registry=self.registry,
@@ -302,6 +330,10 @@ class PrepareP08InputsTests(unittest.TestCase):
             [
                 sys.executable, "scripts/p08_prepare_phylogeny.py",
                 "--candidate-table", str(self.p06),
+                "--gtdb-release", "GTDB_R232",
+                "--p06-scan-manifest", str(self.p06_scan_manifest),
+                "--p03-prediction-manifest", str(self.p03_prediction_manifest),
+                "--p03-prediction-qc", str(self.p03_prediction_qc),
                 "--p07-sequence-manifest", str(self.p07_sequences),
                 "--p07-status-table", str(self.p07_status),
                 "--model-registry", str(self.registry),
@@ -380,6 +412,10 @@ class PrepareP08InputsTests(unittest.TestCase):
             [
                 sys.executable, "scripts/p08_prepare_phylogeny.py",
                 "--candidate-table", str(self.p06),
+                "--gtdb-release", "GTDB_R232",
+                "--p06-scan-manifest", str(self.p06_scan_manifest),
+                "--p03-prediction-manifest", str(self.p03_prediction_manifest),
+                "--p03-prediction-qc", str(self.p03_prediction_qc),
                 "--p07-sequence-manifest", str(self.p07_sequences),
                 "--p07-status-table", str(self.p07_status),
                 "--model-registry", str(self.registry),
@@ -460,7 +496,7 @@ class PrepareP08InputsTests(unittest.TestCase):
 
     def test_missing_p07_tool_status_blocks_with_candidate_and_status_details(self) -> None:
         rows = [row for row in read_tsv(self.p07_status) if not (row["tool"] == "InterProScan" and row["fasta_shard"] == str(self.p07_archaeal))]
-        write_tsv(self.p07_status, ("tool", "fasta_shard", "status"), rows)
+        write_tsv(self.p07_status, P07_STATUS_FIELDS, rows)
         with self.assertRaisesRegex(ValueError, "P07 annotation status requirement failed"):
             self._prepare()
         blocks = read_tsv(self.outdir / "review" / "p08_blocked_records.tsv")
@@ -472,7 +508,7 @@ class PrepareP08InputsTests(unittest.TestCase):
     def test_failed_exit_code_p07_tool_status_blocks(self) -> None:
         rows = read_tsv(self.p07_status)
         rows[0]["status"] = "failed_exit_code"
-        write_tsv(self.p07_status, ("tool", "fasta_shard", "status"), rows)
+        write_tsv(self.p07_status, P07_STATUS_FIELDS, rows)
         with self.assertRaisesRegex(ValueError, "P07 annotation status requirement failed"):
             self._prepare()
         blocks = read_tsv(self.outdir / "review" / "p08_blocked_records.tsv")
@@ -481,7 +517,7 @@ class PrepareP08InputsTests(unittest.TestCase):
     def test_planned_not_run_p07_tool_status_blocks(self) -> None:
         rows = read_tsv(self.p07_status)
         rows[0]["status"] = "planned_not_run"
-        write_tsv(self.p07_status, ("tool", "fasta_shard", "status"), rows)
+        write_tsv(self.p07_status, P07_STATUS_FIELDS, rows)
         with self.assertRaisesRegex(ValueError, "P07 annotation status requirement failed"):
             self._prepare()
         blocks = read_tsv(self.outdir / "review" / "p08_blocked_records.tsv")
@@ -550,7 +586,7 @@ class PrepareP08InputsTests(unittest.TestCase):
         core_seeds = [row for row in core_rows if row["record_kind"] == "seed"]
         core_controls = [row for row in core_rows if row["record_kind"] == "control"]
         self.assertEqual(len(core_seeds), 17)
-        self.assertEqual(len(core_controls), 2)
+        self.assertEqual(len(core_controls), 20)
         self.assertEqual({row["model_sha256"] for row in core_rows}, {"b" * 64})
         self.assertEqual({row["model_provenance"] for row in core_seeds}, {"derived_core_seed_registry"})
         self.assertEqual({row["model_provenance_source_path"] for row in core_seeds}, {str(core_seed_registry)})
@@ -697,6 +733,104 @@ class PrepareP08InputsTests(unittest.TestCase):
         with patch("scripts.p08_prepare_phylogeny.subprocess.run") as run:
             self._prepare()
         run.assert_not_called()
+
+    def test_preparation_requires_an_explicit_gtdb_p06_p03_provenance_chain(self) -> None:
+        with self.assertRaisesRegex(ValueError, "P08 provenance chain"):
+            prepare_p08_inputs(
+                p06_candidate_table=self.p06,
+                p07_sequence_table=self.p07_sequences,
+                p07_status_table=self.p07_status,
+                p05_model_registry=self.registry,
+                p05_seed_table=self.seeds,
+                p05_control_table=self.controls,
+                taxonomy_paths=[self.taxonomy],
+                outdir=self.outdir,
+            )
+
+    def test_p07_association_preserves_skipped_existing_status_and_output_path(self) -> None:
+        rows = read_tsv(self.p07_status)
+        for row in rows:
+            if row["fasta_shard"] == str(self.p07_archaeal):
+                row["status"] = "skipped_existing"
+                row["output_path"] = str(self.root / "interpro" / row["tool"] / "archaeal")
+        write_tsv(self.p07_status, tuple(rows[0].keys()), rows)
+        outputs = self._prepare()
+        candidate = next(row for row in read_tsv(outputs["candidate_manifest"]) if row["target_id"] == "arc1")
+        self.assertEqual(candidate["p07_annotation_status"], "skipped_existing")
+        self.assertIn(str(self.root / "interpro" / "InterProScan" / "archaeal"), candidate["p07_annotation_output_paths"])
+
+    def test_duplicate_p07_status_key_blocks_instead_of_silent_overwrite(self) -> None:
+        rows = read_tsv(self.p07_status)
+        rows.append(dict(rows[0]))
+        write_tsv(self.p07_status, tuple(rows[0].keys()), rows)
+        with self.assertRaisesRegex(ValueError, "duplicate P07 status key"):
+            self._prepare()
+
+    def test_p07_family_categories_must_include_the_p06_family(self) -> None:
+        rows = read_tsv(self.p07_sequences)
+        rows[0]["family_categories"] = "extracellular_pha_depolymerase_core"
+        write_tsv(self.p07_sequences, P07_SEQUENCE_FIELDS, rows)
+        with self.assertRaisesRegex(ValueError, "P07 family_categories missing P06 family"):
+            self._prepare()
+
+    def test_large_family_command_declares_auditable_unmaterialized_representative_contract(self) -> None:
+        self._add_route_family("route_2001_contract", 2001)
+        rows = {row["family_category"]: row for row in read_tsv(self._prepare()["phylogeny_command_manifest"])}
+        large = rows["route_2001_contract"]
+        self.assertIn("representative_selection_algorithm", large)
+        self.assertEqual(large.get("representative_selection_algorithm"), "cluster_then_sha256_tiebreak")
+        self.assertEqual(large["representative_selection_algorithm_version"], "v1")
+        self.assertEqual(large["representative_selection_mapping_sha256"], "not_materialized")
+        self.assertEqual(large["representative_selection_mapping_record_count"], "0")
+        self.assertEqual(large["representative_materialization_status"], "requires_separate_approval")
+
+    def test_control_checksum_kind_must_be_explicit_except_for_narrow_legacy_adapter(self) -> None:
+        rows = read_tsv(self.controls)
+        for row in rows:
+            row.pop("source_checksum_kind")
+        fields = tuple(field for field in self.controls.read_text(encoding="utf-8").splitlines()[0].split("\t") if field != "source_checksum_kind")
+        write_tsv(self.controls, fields, rows)
+        with self.assertRaisesRegex(ValueError, "source_checksum_kind"):
+            self._prepare()
+
+    def test_non_named_hard_negative_control_without_checksum_kind_fails_closed(self) -> None:
+        rows = read_tsv(self.controls)
+        for row in rows:
+            row.pop("source_checksum_kind")
+            row["hard_negative"] = "yes"
+        fields = tuple(
+            field for field in self.controls.read_text(encoding="utf-8").splitlines()[0].split("\t")
+            if field != "source_checksum_kind"
+        ) + ("hard_negative",)
+        write_tsv(self.controls, fields, rows)
+        with self.assertRaisesRegex(ValueError, "source_checksum_kind"):
+            preparer._load_control_rows(self.controls)
+
+    def test_named_legacy_calibration_panel_uses_its_documented_residue_checksum_adapter(self) -> None:
+        legacy_panel = self.root / "p05_hmm_calibration_control_panel.tsv"
+        rows = read_tsv(self.controls)
+        for row in rows:
+            row.pop("source_checksum_kind")
+        fields = tuple(field for field in self.controls.read_text(encoding="utf-8").splitlines()[0].split("\t") if field != "source_checksum_kind")
+        write_tsv(legacy_panel, fields, rows)
+        try:
+            adapted = preparer._load_control_rows(legacy_panel)
+        except ValueError:
+            adapted = []
+        self.assertEqual([row.get("source_checksum_kind") for row in adapted], ["residue_sha256", "residue_sha256"])
+
+    def test_core_authority_requires_17_seeds_and_15_plus_5_hard_panel(self) -> None:
+        _, close_controls = self._write_authoritative_core_reference_view()
+        rows = read_tsv(close_controls)
+        write_tsv(close_controls, tuple(rows[0].keys()), rows[:-1])
+        with self.assertRaisesRegex(ValueError, "core hard-panel count mismatch"):
+            self._prepare()
+
+    def test_tracked_core_authority_tables_have_a_public_contract_validation(self) -> None:
+        self.assertTrue(hasattr(preparer, "validate_tracked_core_authority_tables"))
+        result = preparer.validate_tracked_core_authority_tables(Path(__file__).resolve().parents[1])
+        self.assertEqual(result["core_seed_count"], 17)
+        self.assertEqual(result["close_control_count"], 5)
 
 
 if __name__ == "__main__":

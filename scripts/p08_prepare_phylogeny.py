@@ -27,15 +27,22 @@ DEFAULT_INCLUDE_TIERS = ("High-confidence",)
 REQUIRED_P07_TOOLS = ("InterProScan", "SignalP6")
 EVIDENCE_BOUNDARY = "sequence_and_annotation_evidence_only_not_phenotype_proof"
 BLOCK_FIELDS = ("stage", "family_category", "proteome_shard", "target_id", "reason", "source_path", "notes")
-P06_FIELDS = ("family_category", "proteome_shard", "target_id", "target_accession", "target_length", "full_sequence_score", "hmm_coverage", "tier")
+P06_FIELDS = (
+    "family_category", "proteome_shard", "target_id", "target_accession", "target_length",
+    "full_sequence_score", "hmm_coverage", "calibrated_full_score_threshold",
+    "calibrated_hmm_coverage_threshold", "tier",
+)
 P07_SEQUENCE_FIELDS = ("p07_sequence_id", "proteome_shard", "target_id", "source_proteome_path", "target_length_from_p06", "sequence_length", "family_categories", "fasta_shard")
-P07_STATUS_FIELDS = ("tool", "fasta_shard", "status")
+P07_STATUS_FIELDS = ("tool", "fasta_shard", "input_fasta", "output_path", "status")
+P03_MANIFEST_FIELDS = ("accession", "faa_path", "status")
+P03_QC_FIELDS = ("accession", "faa_path", "status")
 REGISTRY_FIELDS = ("family_category", "approved_for_p06", "scan_permission", "model_sha256")
 SEED_FIELDS = ("family_category", "model_sha256", "seed_id", "source_accession", "sequence_path", "sequence_sha256")
-CONTROL_FIELDS = ("family_category", "model_sha256", "control_id", "control_role", "sequence_path", "sequence_sha256")
+CONTROL_FIELDS = ("family_category", "model_sha256", "control_id", "control_role", "sequence_path", "sequence_sha256", "source_checksum_kind")
 CORE_FAMILY = "extracellular_pha_depolymerase_core"
 CORE_SEED_REGISTRY_FILENAME = "p05_extracellular_core_seed_registry.tsv"
 CORE_CLOSE_CONTROLS_FILENAME = "p05_extracellular_core_close_controls.tsv"
+LEGACY_CALIBRATION_CONTROL_PANEL_FILENAME = "p05_hmm_calibration_control_panel.tsv"
 CORE_SEED_FIELDS = ("family_category", "model_sha256", "seed_id", "source_accession", "sequence_path")
 CORE_CLOSE_CONTROL_FIELDS = ("source_accession", "sequence_path", "notes")
 FAMILY_INPUT_FIELDS = (
@@ -49,6 +56,10 @@ COMMAND_FIELDS = (
     "family_category", "command_status", "input_fasta_path", "input_sha256",
     "candidate_input_record_count", "total_input_record_count", "route", "alignment_fasta_path",
     "representative_input_fasta_path", "fasttree_tree_path", "iqtree_prefix", "representative_plan",
+    "representative_selection_algorithm", "representative_selection_algorithm_version",
+    "representative_selection_parameters", "representative_selection_mapping_path",
+    "representative_selection_mapping_sha256", "representative_selection_mapping_record_count",
+    "representative_materialization_status",
     "mafft_template", "fasttree_template", "iqtree2_template", "iqtree2_annotation",
     "rooting_policy", "evidence_boundary",
 )
@@ -63,6 +74,13 @@ TAXONOMY_JOIN_FIELDS = (
 INPUT_PROVENANCE_FIELDS = ("input_role", "input_path", "input_sha256", "input_usage")
 ROOTING_POLICY = "explicit_accessioned_outgroup_required; otherwise midpoint_display_only"
 IQTREE2_TEMPLATE = "iqtree2 -s {alignment_fasta} -m TEST -B 1000 --prefix {iqtree_prefix}"
+CORE_SEED_COUNT = 17
+CORE_CROSS_FAMILY_CHALLENGE_COUNT = 15
+CORE_CLOSE_CONTROL_COUNT = 5
+CORE_HARD_PANEL_COUNT = CORE_CROSS_FAMILY_CHALLENGE_COUNT + CORE_CLOSE_CONTROL_COUNT
+REPRESENTATIVE_SELECTION_ALGORITHM = "cluster_then_sha256_tiebreak"
+REPRESENTATIVE_SELECTION_ALGORITHM_VERSION = "v1"
+REPRESENTATIVE_SELECTION_PARAMETERS = "cluster_identity=0.99;representative_tiebreak=sequence_sha256_then_record_identity;input_order=record_identity;target_count=requires_separate_approval"
 
 
 def is_approved_model(row: Mapping[str, str]) -> bool:
@@ -93,6 +111,12 @@ def planned_command_templates(
         "mafft_template": "",
         "fasttree_template": "",
         "representative_plan": "",
+        "representative_selection_algorithm": "",
+        "representative_selection_algorithm_version": "",
+        "representative_selection_parameters": "",
+        "representative_selection_mapping_sha256": "",
+        "representative_selection_mapping_record_count": "",
+        "representative_materialization_status": "not_applicable",
         "iqtree2_template": IQTREE2_TEMPLATE.replace("iqtree2", iqtree_exe, 1),
     }
     if route == "mafft_linsi_then_review":
@@ -100,7 +124,13 @@ def planned_command_templates(
     elif route == "mafft_auto_then_review":
         templates["mafft_template"] = f"{mafft_exe} --auto --thread {{threads}} --inputorder {{input_fasta}} > {{alignment_fasta}}"
     else:
-        templates["representative_plan"] = "deterministic representative subset required before exploratory FastTree; no representative selection executed"
+        templates["representative_plan"] = "deterministic representative selection is declared but not materialized; a separately approved selection mapping is required before exploratory FastTree"
+        templates["representative_selection_algorithm"] = REPRESENTATIVE_SELECTION_ALGORITHM
+        templates["representative_selection_algorithm_version"] = REPRESENTATIVE_SELECTION_ALGORITHM_VERSION
+        templates["representative_selection_parameters"] = REPRESENTATIVE_SELECTION_PARAMETERS
+        templates["representative_selection_mapping_sha256"] = "not_materialized"
+        templates["representative_selection_mapping_record_count"] = "0"
+        templates["representative_materialization_status"] = "requires_separate_approval"
         templates["fasttree_template"] = f"{fasttree_exe} -lg {{representative_alignment_fasta}} > {{fasttree_tree}}"
     return templates
 
@@ -133,6 +163,63 @@ def _read_tsv(path: Path, required_fields: Sequence[str], label: str) -> list[di
         if missing_values:
             raise ValueError(f"{label} missing required value at row {row_number}: {', '.join(missing_values)}")
     return rows
+
+
+def _load_control_rows(path: Path) -> list[dict[str, str]]:
+    """Load controls with explicit checksum kinds and a named legacy-panel adapter."""
+    rows = _read_tsv(path, CONTROL_FIELDS[:-1], "P05 control table")
+    for row_number, row in enumerate(rows, start=2):
+        checksum_kind = row.get("source_checksum_kind", "").strip()
+        if checksum_kind:
+            if checksum_kind not in {"file_sha256", "residue_sha256"}:
+                raise ValueError(f"P05 control table invalid source_checksum_kind at row {row_number}: {checksum_kind}")
+            continue
+        if path.name == LEGACY_CALIBRATION_CONTROL_PANEL_FILENAME:
+            row["source_checksum_kind"] = "residue_sha256"
+            continue
+        raise ValueError(f"P05 control table missing required value at row {row_number}: source_checksum_kind")
+    return rows
+
+
+def _unique_p03_rows(rows: Sequence[dict[str, str]], label: str, outdir: Path, blocks: list[dict[str, str]], source_path: Path) -> dict[str, dict[str, str]]:
+    """Index accepted P03 rows by accession without permitting silent replacement."""
+    indexed: dict[str, dict[str, str]] = {}
+    for row in rows:
+        accession = row["accession"]
+        if accession in indexed:
+            _fail(outdir, blocks, f"duplicate {label} accession", source_path=str(source_path), notes=f"accession={accession}")
+        if row["status"] not in {"ok", "completed"}:
+            _fail(outdir, blocks, f"{label} row is not accepted", source_path=str(source_path), notes=f"accession={accession}; status={row['status']}")
+        indexed[accession] = row
+    return indexed
+
+
+def validate_tracked_core_authority_tables(repo_root: Path) -> dict[str, object]:
+    """Validate the compact tracked core authority contract without reading raw sequences."""
+    manifests = Path(repo_root) / "04_family_profiles" / "manifests"
+    registry_path = manifests / "p05_hmm_model_registry.tsv"
+    seeds_path = manifests / CORE_SEED_REGISTRY_FILENAME
+    controls_path = manifests / CORE_CLOSE_CONTROLS_FILENAME
+    registry_rows = _read_tsv(registry_path, REGISTRY_FIELDS, "tracked P05 model registry")
+    core_rows = [row for row in registry_rows if row["family_category"] == CORE_FAMILY]
+    if len(core_rows) != 1 or not is_approved_model(core_rows[0]):
+        raise ValueError("tracked core model registry must contain one approved core row")
+    seed_rows = _read_tsv(seeds_path, CORE_SEED_FIELDS, "tracked extracellular core seed registry")
+    close_rows = _read_tsv(controls_path, CORE_CLOSE_CONTROL_FIELDS, "tracked extracellular core close controls")
+    if len(seed_rows) != CORE_SEED_COUNT or len({row["source_accession"] for row in seed_rows}) != CORE_SEED_COUNT:
+        raise ValueError("tracked core seed authority must contain 17 unique accessions")
+    if len(close_rows) != CORE_CLOSE_CONTROL_COUNT or len({row["source_accession"] for row in close_rows}) != CORE_CLOSE_CONTROL_COUNT:
+        raise ValueError("tracked core close-control authority must contain 5 unique accessions")
+    if any(row["family_category"] != CORE_FAMILY or row["model_sha256"] != core_rows[0]["model_sha256"] for row in seed_rows):
+        raise ValueError("tracked core seed authority model contract mismatch")
+    return {
+        "core_seed_count": len(seed_rows),
+        "close_control_count": len(close_rows),
+        "core_seed_registry_path": seeds_path,
+        "core_seed_registry_sha256": _sha256(seeds_path),
+        "close_controls_path": controls_path,
+        "close_controls_sha256": _sha256(controls_path),
+    }
 
 
 def _sha256(path: Path) -> str:
@@ -287,6 +374,10 @@ def prepare_p08_inputs(
     fasttree_exe: str = "FastTree",
     taxonomy_source_roles: Sequence[str] | None = None,
     additional_provenance_inputs: Mapping[str, Path] | None = None,
+    gtdb_release: str | None = None,
+    p06_scan_manifest: Path | None = None,
+    p03_prediction_manifest: Path | None = None,
+    p03_prediction_qc: Path | None = None,
 ) -> dict[str, Path]:
     """Validate and write deterministic P08 manifests from existing P05--P07 data."""
     outdir = Path(outdir)
@@ -294,15 +385,35 @@ def prepare_p08_inputs(
     include_tiers = tuple(include_tiers)
     if "Rejected" in include_tiers:
         _fail(outdir, blocks, "Rejected tier is not permitted by the P08 Python API")
+    provenance_paths = {
+        "p06_scan_manifest": p06_scan_manifest,
+        "p03_prediction_manifest": p03_prediction_manifest,
+        "p03_prediction_qc": p03_prediction_qc,
+    }
+    missing_provenance = [role for role, path in provenance_paths.items() if path is None]
+    if not gtdb_release or not gtdb_release.strip() or missing_provenance:
+        _fail(outdir, blocks, "P08 provenance chain requires explicit GTDB release, P06 scan manifest, P03 prediction manifest, and P03 prediction QC")
+    provenance_paths = {role: Path(path) for role, path in provenance_paths.items()}
+    for role, path in provenance_paths.items():
+        if not path.is_file() or path.stat().st_size == 0:
+            _fail(outdir, blocks, f"P08 provenance chain requires an existing nonempty {role}", source_path=str(path))
     try:
         registry_rows = _read_tsv(Path(p05_model_registry), REGISTRY_FIELDS, "P05 registry")
         seed_rows = _read_tsv(Path(p05_seed_table), SEED_FIELDS, "P05 seed table")
-        control_rows = _read_tsv(Path(p05_control_table), CONTROL_FIELDS, "P05 control table")
+        control_rows = _load_control_rows(Path(p05_control_table))
         p06_rows = _read_tsv(Path(p06_candidate_table), P06_FIELDS, "P06 candidate table")
         p07_rows = _read_tsv(Path(p07_sequence_table), P07_SEQUENCE_FIELDS, "P07 sequence table")
         status_rows = _read_tsv(Path(p07_status_table), P07_STATUS_FIELDS, "P07 status table")
+        p03_manifest_rows = _read_tsv(provenance_paths["p03_prediction_manifest"], P03_MANIFEST_FIELDS, "P03 prediction manifest")
+        p03_qc_rows = _read_tsv(provenance_paths["p03_prediction_qc"], P03_QC_FIELDS, "P03 prediction QC")
     except ValueError as error:
         _fail(outdir, blocks, str(error))
+    p03_manifest_by_accession = _unique_p03_rows(
+        p03_manifest_rows, "P03 prediction manifest", outdir, blocks, provenance_paths["p03_prediction_manifest"]
+    )
+    p03_qc_by_accession = _unique_p03_rows(
+        p03_qc_rows, "P03 prediction QC", outdir, blocks, provenance_paths["p03_prediction_qc"]
+    )
 
     p06_keys: set[tuple[str, str, str]] = set()
     for row in p06_rows:
@@ -332,7 +443,18 @@ def prepare_p08_inputs(
             _fail(outdir, blocks, "duplicate P07 sequence ID", proteome_shard=key[0], target_id=key[1], source_path=str(p07_sequence_table), notes=f"p07_sequence_id={row['p07_sequence_id']}")
         p07_by_key[key] = row
         p07_ids.add(row["p07_sequence_id"])
-    statuses = {(row["tool"], Path(row["fasta_shard"]).stem): row["status"] for row in status_rows}
+    statuses: dict[tuple[str, str], dict[str, str]] = {}
+    for row in status_rows:
+        status_key = (row["tool"], Path(row["fasta_shard"]).stem)
+        if status_key in statuses:
+            _fail(
+                outdir,
+                blocks,
+                "duplicate P07 status key",
+                source_path=str(p07_status_table),
+                notes=f"tool={status_key[0]}; fasta_shard_stem={status_key[1]}",
+            )
+        statuses[status_key] = row
     try:
         taxonomy = _load_taxonomy_records(
             [Path(path) for path in taxonomy_paths], taxonomy_source_roles
@@ -360,7 +482,7 @@ def prepare_p08_inputs(
             if len(fasta_records) != 1:
                 _fail(outdir, blocks, "reference FASTA malformed", family_category=row["family_category"], source_path=str(path), notes=f"{identifier_field}={row[identifier_field]}; expected exactly one FASTA record")
             sequence = next(iter(fasta_records.values()))
-            checksum_kind = "residue_sha256" if record_kind == "control" and "hard_negative" in row else "file_sha256"
+            checksum_kind = row.get("source_checksum_kind", "file_sha256")
             verified = _residue_sha256(sequence) if checksum_kind == "residue_sha256" else verified_file_sha256
             if verified != row["sequence_sha256"]:
                 _fail(outdir, blocks, "SHA-256 mismatch", family_category=row["family_category"], source_path=str(path), notes=f"{identifier_field}={row[identifier_field]}; checksum_kind={checksum_kind}")
@@ -383,8 +505,11 @@ def prepare_p08_inputs(
         except ValueError as error:
             _fail(outdir, blocks, "missing authoritative core seed registry", family_category=CORE_FAMILY, source_path=str(core_seed_path), notes=str(error))
         expected_count = core_model.get("seed_sequence_count", "")
-        if expected_count and (not expected_count.isdigit() or len(core_seed_rows) != int(expected_count)):
-            _fail(outdir, blocks, "core seed registry count mismatch", family_category=CORE_FAMILY, source_path=str(core_seed_path), notes=f"registry_seed_sequence_count={expected_count}; core_seed_rows={len(core_seed_rows)}")
+        if (
+            len(core_seed_rows) != CORE_SEED_COUNT
+            or (expected_count and (not expected_count.isdigit() or int(expected_count) != CORE_SEED_COUNT))
+        ):
+            _fail(outdir, blocks, "core seed registry count mismatch", family_category=CORE_FAMILY, source_path=str(core_seed_path), notes=f"expected_core_seed_count={CORE_SEED_COUNT}; registry_seed_sequence_count={expected_count or 'not_declared'}; core_seed_rows={len(core_seed_rows)}")
         seen_core_accessions: set[str] = set()
         for row in core_seed_rows:
             accession = row["source_accession"]
@@ -402,7 +527,19 @@ def prepare_p08_inputs(
                 "model_provenance": "derived_core_seed_registry", "model_provenance_source_path": str(core_seed_path),
             })
         if not any(row["record_kind"] == "control" for row in references_by_family[CORE_FAMILY]):
-            for source in sorted((row for family, records in references_by_family.items() if family in approved_models and family != CORE_FAMILY for row in records if row["record_kind"] == "seed"), key=lambda row: (row["family_category"], row["source_accession"])):
+            cross_family_sources = sorted(
+                (
+                    row
+                    for family, records in references_by_family.items()
+                    if family in approved_models and family != CORE_FAMILY
+                    for row in records
+                    if row["record_kind"] == "seed"
+                ),
+                key=lambda row: (row["family_category"], row["source_accession"]),
+            )
+            if len(cross_family_sources) != CORE_CROSS_FAMILY_CHALLENGE_COUNT:
+                _fail(outdir, blocks, "core hard-panel count mismatch", family_category=CORE_FAMILY, source_path=str(p05_seed_table), notes=f"expected_cross_family_challenges={CORE_CROSS_FAMILY_CHALLENGE_COUNT}; observed={len(cross_family_sources)}")
+            for source in cross_family_sources:
                 references_by_family[CORE_FAMILY].append({
                     **source, "family_category": CORE_FAMILY, "record_kind": "control",
                     "record_id": f"{CORE_FAMILY}|cross_family_challenge|{source['family_category']}|{source['source_accession']}",
@@ -414,6 +551,8 @@ def prepare_p08_inputs(
                 close_rows = _read_tsv(close_controls_path, CORE_CLOSE_CONTROL_FIELDS, "P05 extracellular core close controls")
             except ValueError as error:
                 _fail(outdir, blocks, "missing authoritative core close controls", family_category=CORE_FAMILY, source_path=str(close_controls_path), notes=str(error))
+            if len(close_rows) != CORE_CLOSE_CONTROL_COUNT or len({row["source_accession"] for row in close_rows}) != CORE_CLOSE_CONTROL_COUNT:
+                _fail(outdir, blocks, "core hard-panel count mismatch", family_category=CORE_FAMILY, source_path=str(close_controls_path), notes=f"expected_close_controls={CORE_CLOSE_CONTROL_COUNT}; observed={len(close_rows)}")
             for row in close_rows:
                 match = re.search(r"residue SHA256 is ([0-9a-f]{64})", row["notes"])
                 if match is None:
@@ -432,6 +571,9 @@ def prepare_p08_inputs(
                 references_by_family[CORE_FAMILY].append({
                     "family_category": CORE_FAMILY, "record_kind": "control", "record_id": f"{CORE_FAMILY}|close_non_target_hydrolase|{row['family_category']}|{row['source_accession']}", "source_accession": row["source_accession"], "control_role": "close_non_target_hydrolase", "sequence_path": str(path), "sequence_sha256": expected_sha256, "verified_sha256": expected_sha256, "source_checksum_kind": "residue_sha256", "model_sha256": core_model["model_sha256"], "source_model_sha256": "", "model_provenance": "derived_core_close_control", "model_provenance_source_path": str(close_controls_path), "evidence": row.get("evidence_level", ""), "notes": row["notes"], "sequence": sequence, "source_accession_or_assembly": row["source_accession"],
                 })
+            core_controls = [row for row in references_by_family[CORE_FAMILY] if row["record_kind"] == "control"]
+            if len(core_controls) != CORE_HARD_PANEL_COUNT:
+                _fail(outdir, blocks, "core hard-panel count mismatch", family_category=CORE_FAMILY, notes=f"expected_hard_panel={CORE_HARD_PANEL_COUNT}; observed={len(core_controls)}")
 
     candidate_rows: list[dict[str, str]] = []
     candidate_fasta_records: list[dict[str, str]] = []
@@ -448,6 +590,9 @@ def prepare_p08_inputs(
         p07 = p07_by_key.get(key)
         if p07 is None:
             _fail(outdir, blocks, "missing P07 sequence match", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=str(p07_sequence_table))
+        p07_families = {value.strip() for value in p07["family_categories"].split(";") if value.strip()}
+        if family not in p07_families:
+            _fail(outdir, blocks, "P07 family_categories missing P06 family", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=str(p07_sequence_table), notes=f"p07_family_categories={p07['family_categories']}")
         length_text = (p06["target_length"], p07["target_length_from_p06"], p07["sequence_length"])
         if any(not value.isdigit() or int(value) <= 0 for value in length_text):
             _fail(outdir, blocks, "P06/P07 target length is not a positive integer", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=str(p07_sequence_table), notes=f"p06_target_length={length_text[0]}; p07_target_length_from_p06={length_text[1]}; p07_sequence_length={length_text[2]}")
@@ -471,17 +616,32 @@ def prepare_p08_inputs(
         if len(sequence) != expected_length:
             _fail(outdir, blocks, "candidate FASTA sequence length mismatch", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=str(fasta_path), notes=f"p07_sequence_id={p07['p07_sequence_id']}; expected_length={p06['target_length']}; fasta_length={len(sequence)}")
         shard_stem = Path(p07["fasta_shard"]).stem
-        status_detail = "; ".join(f"{tool}={statuses.get((tool, shard_stem), 'missing')}" for tool in REQUIRED_P07_TOOLS)
-        if any(statuses.get((tool, shard_stem)) not in {"completed", "skipped_existing"} for tool in REQUIRED_P07_TOOLS):
+        required_statuses = {tool: statuses.get((tool, shard_stem)) for tool in REQUIRED_P07_TOOLS}
+        status_detail = "; ".join(f"{tool}={(required_statuses[tool] or {}).get('status', 'missing')}" for tool in REQUIRED_P07_TOOLS)
+        if any((required_statuses[tool] or {}).get("status") not in {"completed", "skipped_existing"} for tool in REQUIRED_P07_TOOLS):
             _fail(outdir, blocks, "P07 annotation status requirement failed", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=p07["fasta_shard"], notes=f"fasta_shard_stem={shard_stem}; {status_detail}")
         assembly_accession = _assembly_accession(p07["source_proteome_path"])
+        p03_manifest = p03_manifest_by_accession.get(assembly_accession)
+        p03_qc = p03_qc_by_accession.get(assembly_accession)
+        if p03_manifest is None or p03_qc is None:
+            _fail(outdir, blocks, "P03 provenance absence blocks processing", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=p07["source_proteome_path"], notes=f"assembly_accession={assembly_accession}; manifest={'present' if p03_manifest else 'missing'}; qc={'present' if p03_qc else 'missing'}")
+        if Path(p03_manifest["faa_path"]) != Path(p07["source_proteome_path"]) or Path(p03_qc["faa_path"]) != Path(p07["source_proteome_path"]):
+            _fail(outdir, blocks, "P03 FAA source path mismatch", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=p07["source_proteome_path"], notes=f"p03_manifest_faa_path={p03_manifest['faa_path']}; p03_qc_faa_path={p03_qc['faa_path']}")
         taxonomy_record = taxonomy.get(assembly_accession)
         if not taxonomy_record:
             _fail(outdir, blocks, "taxonomy absence blocks processing", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=p07["source_proteome_path"])
         lineage = taxonomy_record["lineage"]
         candidate = {
             **{field: p06[field] for field in P06_FIELDS},
-            "p07_sequence_id": p07["p07_sequence_id"], "source_proteome_path": p07["source_proteome_path"], "fasta_shard": p07["fasta_shard"], "p07_annotation_status": "completed", "assembly_accession": assembly_accession, "taxonomy_lineage": lineage, "model_sha256": approved_models[family]["model_sha256"], "evidence_boundary": EVIDENCE_BOUNDARY,
+            "gtdb_release": gtdb_release.strip(), "p06_scan_manifest_path": str(provenance_paths["p06_scan_manifest"]), "p06_scan_manifest_sha256": _sha256(provenance_paths["p06_scan_manifest"]),
+            "p03_prediction_manifest_path": str(provenance_paths["p03_prediction_manifest"]), "p03_prediction_manifest_sha256": _sha256(provenance_paths["p03_prediction_manifest"]),
+            "p03_prediction_qc_path": str(provenance_paths["p03_prediction_qc"]), "p03_prediction_qc_sha256": _sha256(provenance_paths["p03_prediction_qc"]), "p03_faa_path": p03_manifest["faa_path"],
+            "p07_sequence_id": p07["p07_sequence_id"], "source_proteome_path": p07["source_proteome_path"], "fasta_shard": p07["fasta_shard"],
+            "p07_annotation_status": ";".join(sorted({required_statuses[tool]["status"] for tool in REQUIRED_P07_TOOLS})),
+            "p07_annotation_status_by_tool": ";".join(f"{tool}={required_statuses[tool]['status']}" for tool in REQUIRED_P07_TOOLS),
+            "p07_annotation_status_table_path": str(p07_status_table), "p07_annotation_status_table_sha256": _sha256(Path(p07_status_table)),
+            "p07_annotation_output_paths": ";".join(f"{tool}={required_statuses[tool]['output_path']}" for tool in REQUIRED_P07_TOOLS),
+            "assembly_accession": assembly_accession, "taxonomy_lineage": lineage, "model_sha256": approved_models[family]["model_sha256"], "evidence_boundary": EVIDENCE_BOUNDARY,
         }
         candidate_rows.append(candidate)
         candidate_fasta_records.append({
@@ -561,6 +721,7 @@ def prepare_p08_inputs(
         )
         alignment_fasta = outdir / "alignments" / f"{family}.aligned.faa"
         representative_input = outdir / "review" / f"{family}.representative_input.faa"
+        representative_mapping = outdir / "review" / f"{family}.representative_selection_mapping.tsv"
         fasttree_tree = outdir / "trees" / f"{family}.fasttree.nwk"
         iqtree_prefix = outdir / "trees" / family
         command_rows.append({
@@ -570,6 +731,13 @@ def prepare_p08_inputs(
             "alignment_fasta_path": str(alignment_fasta), "representative_input_fasta_path": str(representative_input),
             "fasttree_tree_path": str(fasttree_tree), "iqtree_prefix": str(iqtree_prefix),
             "representative_plan": templates["representative_plan"], "mafft_template": templates["mafft_template"],
+            "representative_selection_algorithm": templates["representative_selection_algorithm"],
+            "representative_selection_algorithm_version": templates["representative_selection_algorithm_version"],
+            "representative_selection_parameters": templates["representative_selection_parameters"],
+            "representative_selection_mapping_path": str(representative_mapping) if templates["representative_selection_algorithm"] else "",
+            "representative_selection_mapping_sha256": templates["representative_selection_mapping_sha256"],
+            "representative_selection_mapping_record_count": templates["representative_selection_mapping_record_count"],
+            "representative_materialization_status": templates["representative_materialization_status"],
             "fasttree_template": templates["fasttree_template"], "iqtree2_template": templates["iqtree2_template"],
             "iqtree2_annotation": "requires_independent_subset_and_outgroup_approval", "rooting_policy": ROOTING_POLICY,
             "evidence_boundary": EVIDENCE_BOUNDARY,
@@ -588,8 +756,11 @@ def prepare_p08_inputs(
     source_roles = tuple(taxonomy_source_roles or ())
     primary_inputs = (
         ("candidate_table", Path(p06_candidate_table), "P06_candidate_input"),
+        ("p06_scan_manifest", provenance_paths["p06_scan_manifest"], "P06_accepted_scan_contract"),
         ("p07_sequence_manifest", Path(p07_sequence_table), "P07_sequence_input"),
         ("p07_status_table", Path(p07_status_table), "P07_annotation_status_input"),
+        ("p03_prediction_manifest", provenance_paths["p03_prediction_manifest"], "P03_prediction_and_FAA_source_contract"),
+        ("p03_prediction_qc", provenance_paths["p03_prediction_qc"], "P03_prediction_QC_contract"),
         ("model_registry", Path(p05_model_registry), "P05_approved_model_gate"),
         ("seed_registry", Path(p05_seed_table), "P05_accessioned_seed_provenance"),
         ("control_panel", Path(p05_control_table), "P05_accessioned_control_provenance"),
@@ -606,6 +777,12 @@ def prepare_p08_inputs(
         {"input_role": role, "input_path": str(path), "input_sha256": _sha256(path), "input_usage": usage}
         for role, path, usage in (*primary_inputs, *taxonomy_inputs, *tree_inputs)
     ]
+    provenance_rows.append({
+        "input_role": "gtdb_release",
+        "input_path": gtdb_release.strip(),
+        "input_sha256": "not_a_file_declaration",
+        "input_usage": "explicit_GTDB_release_declaration_not_inferred",
+    })
     _write_tsv(outputs["input_provenance"], INPUT_PROVENANCE_FIELDS, sorted(provenance_rows, key=lambda row: row["input_role"]))
     return outputs
 
@@ -624,6 +801,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
         description="Prepare P08 phylogeny manifests without running alignment or tree inference."
     )
     parser.add_argument("--candidate-table", type=Path, required=True)
+    parser.add_argument("--gtdb-release", required=True, help="Explicit GTDB release declaration; it is recorded and never inferred.")
+    parser.add_argument("--p06-scan-manifest", type=Path, required=True)
+    parser.add_argument("--p03-prediction-manifest", type=Path, required=True)
+    parser.add_argument("--p03-prediction-qc", type=Path, required=True)
     parser.add_argument("--p07-sequence-manifest", type=Path, required=True)
     parser.add_argument("--p07-status-table", type=Path, required=True)
     parser.add_argument("--model-registry", type=Path, required=True)
@@ -650,6 +831,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         ar53_tree = _require_existing_provenance_path(args.ar53_tree, "--ar53-tree")
         outputs = prepare_p08_inputs(
             p06_candidate_table=args.candidate_table,
+            gtdb_release=args.gtdb_release,
+            p06_scan_manifest=args.p06_scan_manifest,
+            p03_prediction_manifest=args.p03_prediction_manifest,
+            p03_prediction_qc=args.p03_prediction_qc,
             p07_sequence_table=args.p07_sequence_manifest,
             p07_status_table=args.p07_status_table,
             p05_model_registry=args.model_registry,

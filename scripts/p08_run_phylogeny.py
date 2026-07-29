@@ -36,19 +36,26 @@ COMMAND_MANIFEST_FIELDS = (
     "family_category", "command_status", "input_fasta_path", "input_sha256",
     "candidate_input_record_count", "total_input_record_count", "route", "alignment_fasta_path",
     "representative_input_fasta_path", "fasttree_tree_path", "iqtree_prefix", "representative_plan",
+    "representative_selection_algorithm", "representative_selection_algorithm_version",
+    "representative_selection_parameters", "representative_selection_mapping_path",
+    "representative_selection_mapping_sha256", "representative_selection_mapping_record_count",
+    "representative_materialization_status",
     "mafft_template", "fasttree_template", "iqtree2_template", "iqtree2_annotation",
     "rooting_policy", "evidence_boundary",
 )
 STATUS_FIELDS = (
-    "family_category", "route", "output_path", "input_fasta_path", "input_sha256",
+    "family_category", "route", "command_manifest_path", "command_manifest_sha256", "preflight_environment",
+    "output_path", "input_fasta_path", "input_sha256",
     "representative_input_fasta_path", "representative_input_sha256", "representative_input_contract",
-    "command_template", "selected_command", "executable", "status", "exit_code",
+    "command_template", "selected_command", "executable", "executable_path", "executable_version", "status", "exit_code",
     "started_at_utc", "finished_at_utc", "notes",
 )
 NON_BIOLOGICAL_NOTE = (
     "Execution and integrity status is not biological negative evidence; "
     "P08 remains sequence/annotation/tree-planning evidence only."
 )
+PREFLIGHT_ENVIRONMENT = "local_preflight_only_no_tool_execution"
+UNQUERIED_TOOL_VERSION = "not_queried_preflight_only"
 
 
 def _utc_now() -> str:
@@ -99,9 +106,20 @@ def _selected_task(job: dict[str, str]) -> dict[str, str]:
         template = job["fasttree_template"]
         representative_input_path = job["representative_input_fasta_path"]
         representative_contract = (
-            "planned_not_materialized; independent representative SHA-256 is required "
-            "before any separately authorized FastTree execution"
+            "planned_not_materialized; a separately approved representative selection mapping, "
+            "mapping SHA-256, and independent representative SHA-256 are required before FastTree execution"
         )
+        representative_required = (
+            "representative_selection_algorithm", "representative_selection_algorithm_version",
+            "representative_selection_parameters", "representative_selection_mapping_path",
+            "representative_selection_mapping_sha256", "representative_selection_mapping_record_count",
+            "representative_materialization_status",
+        )
+        missing_representative_contract = [field for field in representative_required if not job[field]]
+        if missing_representative_contract:
+            raise ValueError(f"Task 3 command manifest has incomplete representative contract for {job['family_category']!r}: {', '.join(missing_representative_contract)}")
+        if job["representative_selection_mapping_sha256"] != "not_materialized" or job["representative_selection_mapping_record_count"] != "0" or job["representative_materialization_status"] != "requires_separate_approval":
+            raise ValueError(f"Task 3 command manifest has invalid unmaterialized representative contract for {job['family_category']!r}")
     else:
         raise ValueError(f"unsupported Task 3 P08 route {route!r} for family {job['family_category']!r}")
     required = {
@@ -127,6 +145,11 @@ def _selected_task(job: dict[str, str]) -> dict[str, str]:
         "command_template": template,
         "selected_command": "",
         "executable": "",
+        "executable_path": "",
+        "executable_version": UNQUERIED_TOOL_VERSION,
+        "command_manifest_path": "",
+        "command_manifest_sha256": "",
+        "preflight_environment": PREFLIGHT_ENVIRONMENT,
         "command_parts": [],
     }
 
@@ -154,14 +177,27 @@ def _parse_selected_command(task: dict[str, str], workers: int) -> dict[str, str
         raise ValueError(f"could not parse selected command for {task['family_category']!r}: {error}") from error
     if not command_parts:
         raise ValueError(f"could not parse selected command for {task['family_category']!r}: command is empty")
-    return {**task, "selected_command": command, "executable": command_parts[0].strip("\"'"), "command_parts": command_parts}
+    executable = command_parts[0].strip("\"'")
+    return {
+        **task,
+        "selected_command": command,
+        "executable": executable,
+        "executable_path": _resolve_executable_path(executable),
+        "executable_version": UNQUERIED_TOOL_VERSION,
+        "command_parts": command_parts,
+    }
+
+
+def _resolve_executable_path(executable: str) -> str:
+    """Resolve an executable path without running its version command."""
+    executable_path = Path(executable)
+    if executable_path.parent != Path("."):
+        return str(executable_path) if executable_path.is_file() else ""
+    return shutil.which(executable) or ""
 
 
 def _executable_available(executable: str) -> bool:
-    executable_path = Path(executable)
-    if executable_path.parent != Path("."):
-        return executable_path.is_file()
-    return shutil.which(executable) is not None
+    return bool(_resolve_executable_path(executable))
 
 
 def _output_is_complete(path: Path) -> bool:
@@ -174,6 +210,9 @@ def _status_row(task: dict[str, str], status: str, *, exit_code: int | None = No
     return {
         "family_category": task["family_category"],
         "route": task["route"],
+        "command_manifest_path": task["command_manifest_path"],
+        "command_manifest_sha256": task["command_manifest_sha256"],
+        "preflight_environment": task["preflight_environment"],
         "output_path": task["output_path"],
         "input_fasta_path": task["input_fasta_path"],
         "input_sha256": task["input_sha256"],
@@ -183,6 +222,8 @@ def _status_row(task: dict[str, str], status: str, *, exit_code: int | None = No
         "command_template": task["command_template"],
         "selected_command": task["selected_command"],
         "executable": task["executable"],
+        "executable_path": task["executable_path"],
+        "executable_version": task["executable_version"],
         "status": status,
         "exit_code": "" if exit_code is None else str(exit_code),
         "started_at_utc": timestamp,
@@ -245,7 +286,7 @@ def _check_task(task: dict[str, str], *, workers: int, preflight_only: bool) -> 
     if not _executable_available(task["executable"]):
         return _status_row(task, "missing_executable", notes="Selected command executable was not found."), task
     if _output_is_complete(Path(task["output_path"])):
-        return _status_row(task, "skipped_existing", notes="Route-specific planned output already exists and is nonempty."), task
+        return _status_row(task, "skipped_existing", notes="preflight integrity/resume state: route-specific planned output already exists and is nonempty; this does not assert a completed biological analysis."), task
     if preflight_only:
         return _status_row(task, "preflight_ok", notes="Input, checksum, command parsing, and executable checks passed; no command was run."), task
     return None, task
@@ -274,7 +315,17 @@ def run_manifest(
         raise ValueError("workers must be at least 1")
     if not preflight_only and not allow_test_execution:
         raise ValueError("non-preflight execution is limited to explicit unit-test fixtures")
-    tasks = [_selected_task(job) for job in _load_manifest(Path(manifest_path))]
+    manifest_path = Path(manifest_path)
+    manifest_sha256 = _sha256(manifest_path)
+    tasks = [
+        {
+            **_selected_task(job),
+            "command_manifest_path": str(manifest_path),
+            "command_manifest_sha256": manifest_sha256,
+            "preflight_environment": PREFLIGHT_ENVIRONMENT,
+        }
+        for job in _load_manifest(manifest_path)
+    ]
     keys = [_task_key(task) for task in tasks]
     if len(keys) != len(set(keys)):
         raise ValueError("Task 3 command manifest has duplicate family_category/route/output_path task keys")

@@ -27,10 +27,14 @@ P08 在每个已批准 P05 模型家族中，保留 GTDB R232 候选、accession
 3. P05 种子和对照都必须由 manifest 中的 accession、source path、模型 SHA-256 和
    序列 SHA-256 验证。种子是已有的实验/注释范围证据，对照用于邻近水解酶边界检查；
    两者都不替代 GTDB 候选的表型实验。
-4. P07 只接受已完成或 `skipped_existing` 的 InterProScan 与 SignalP6 状态，并核对
-   P06/P07 target、长度、FASTA 和 shard 关联。P07 状态缺失、失败或校验和冲突必须
-   关闭处理并写入 review 记录。
-5. Bac120 taxonomy 仅用于细菌 assembly 映射，Ar53 taxonomy 仅用于古菌 assembly
+4. P08 必须显式传入 GTDB release、P06 scan manifest、P03 prediction manifest/QC；每个候选
+   逐行保留 FAA 源路径、upstream 路径与 SHA-256，以及 P06 模型分数、coverage、阈值和 tier。
+   P03 accession/FAA 路径与 P07 源路径不一致即关闭处理，绝不推断 release。
+5. P07 只接受已完成或 `skipped_existing` 的 InterProScan 与 SignalP6 状态，并核对
+   P06/P07 target、family_categories、长度、FASTA 和 shard 关联；候选记录保留实际 terminal
+   status、P07 状态表路径及每个工具的 output path。重复 `(tool, fasta_shard)` 状态键、状态缺失、失败
+   或校验和冲突必须关闭处理并写入 review 记录。
+6. Bac120 taxonomy 仅用于细菌 assembly 映射，Ar53 taxonomy 仅用于古菌 assembly
    映射；CLI 以两个独立参数加载，分别验证 `d__Bacteria`/`d__Archaea`，并拒绝
    标准化 accession 跨来源重叠。taxonomy join 逐行记录来源角色、路径和 SHA-256。
    Bac120/Ar53 参考树只作为现有的 provenance/preflight 输入：必须为非空文件，且
@@ -48,8 +52,9 @@ summary、phylogeny command 和 hash-locked input provenance manifests，并写�
 
 - `<200`：L-INS-i 计划，`--localpair --maxiterate 1000 --inputorder`；
 - `200–2000`：`mafft --auto --inputorder` 计划；
-- `>2000`：先写入确定性代表序列计划，不物化子集；将 FastTree 仅保留为后续探索性
-  选择，且代表输入和 SHA-256 必须先独立记录。
+- `>2000`：先写入确定性代表序列契约，不物化子集；固定算法/version/参数、未来 mapping 路径、
+  `not_materialized` mapping SHA-256、记录数 0 与单独授权边界。将 FastTree 仅保留为后续探索性
+  选择，代表输入、mapping 和 SHA-256 必须在未来独立授权后才可物化。
 
 FastTree 用于大型家族的探索性概览，不能替代系统的统计推断。IQ-TREE 仅可在另行批准
 的子集、模型选择和 accessioned outgroup 已确定后使用；现有 `-m TEST -B 1000` 模板
@@ -88,10 +93,12 @@ cd /home/data/haoyu/PHB-GTDB-GPT
 ```
 
 预检只有在输入 FASTA、whole-file SHA-256、命令解析和可执行文件可用时才给出
-`preflight_ok`，并且仍不执行命令。`planned_not_run` 表示准备阶段写出的原始计划；
-`missing_executable`、`missing_input`、`checksum_mismatch`、`failed_exit_code` 与
-`failed_missing_output` 都是故障/完整性状态。未来经独立授权才可出现 `completed` 或
-`skipped_existing`，但这些执行状态不改变生物学证据边界。
+`preflight_ok`，并且仍不执行命令。status 逐行绑定 command-manifest 全文件 SHA-256、解析的
+可执行文件路径和 `not_queried_preflight_only` 版本状态；不调用工具取得版本。`planned_not_run`
+表示准备阶段写出的原始计划；`missing_executable`、`missing_input`、`checksum_mismatch`、
+`failed_exit_code` 与 `failed_missing_output` 都是故障/完整性状态。预检的 `skipped_existing`
+仅指既有 route 输出非空的完整性/恢复状态，不表示已完成生物学分析；未来经独立授权才可出现
+`completed`，且这些执行状态不改变生物学证据边界。
 
 ## 接受标准与产物位置
 

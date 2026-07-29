@@ -171,10 +171,12 @@ PHB/PHA degradation phenotype.
   - `scripts/p08_prepare_phylogeny.py` and `scripts/p08_run_phylogeny.py`
   - `tests/test_p08_prepare_phylogeny.py` and `tests/test_p08_run_phylogeny.py`
   - `docs/P08_PHYLOGENY_TAXONOMY_PLAN_2026-07-29.md` and `07_phylogeny/README.md`
-  - preparation accepts only approved P05 models, defaults to P06 `High-confidence`, permits `Review` only when explicit, preserves nonexclusive multi-model targets, and records accessioned seed/control plus GTDB taxonomy provenance
+  - preparation accepts only approved P05 models, defaults to P06 `High-confidence`, permits `Review` only when explicit, preserves nonexclusive multi-model targets, and fail-closes on explicit GTDB R232/P06 scan/P03 manifest+QC provenance, P03 FAA-source mismatches, P07 duplicate status keys, or P07 family mismatch
+  - each candidate retains P06 score/coverage thresholds, P03/P06/P07 source paths and whole-file SHA-256 contracts, actual InterProScan/SignalP6 terminal statuses and output paths; this is traceability only, not phenotype evidence
+  - the pooled extracellular core authority is validated as 17 seeds plus a 15+5 hard panel; large-family plans declare an unmaterialized representative-selection algorithm/version/parameters/mapping contract and require future separate approval
   - Bac120/Ar53 taxonomy sources are domain-validated and hash-locked; tree paths/SHA-256 are recorded in the machine-local input provenance manifest as preflight-only inputs, without reading tree topology
   - preparation never runs MAFFT, FastTree, or IQ-TREE and writes command rows as `planned_not_run`
-  - the runner CLI remains `--manifest --status-dir --workers --preflight-only`; T141 preflight and every actual alignment/tree inference remain not run and need separate authorization
+  - the runner CLI remains `--manifest --status-dir --workers --preflight-only`; status binds the full command-manifest SHA-256 and nonexecuted tool-resolution provenance. `skipped_existing` during preflight is only a nonempty-artifact integrity/resume state, not a completed biological analysis. T141 preflight and every actual alignment/tree inference remain not run and need separate authorization
   - P08 family FASTA, mappings, manifests, reviews, statuses, logs, alignments, and trees stay machine-local unless a compact, accepted summary is later promoted
 
 ## Key Files

@@ -16,6 +16,10 @@ MANIFEST_FIELDS = (
     "family_category", "command_status", "input_fasta_path", "input_sha256",
     "candidate_input_record_count", "total_input_record_count", "route", "alignment_fasta_path",
     "representative_input_fasta_path", "fasttree_tree_path", "iqtree_prefix", "representative_plan",
+    "representative_selection_algorithm", "representative_selection_algorithm_version",
+    "representative_selection_parameters", "representative_selection_mapping_path",
+    "representative_selection_mapping_sha256", "representative_selection_mapping_record_count",
+    "representative_materialization_status",
     "mafft_template", "fasttree_template", "iqtree2_template", "iqtree2_annotation",
     "rooting_policy", "evidence_boundary",
 )
@@ -54,6 +58,13 @@ class P08RunPhylogenyTest(unittest.TestCase):
             "fasttree_tree_path": str(root / "outputs" / f"{family}.nwk"),
             "iqtree_prefix": str(root / "outputs" / family),
             "representative_plan": "",
+            "representative_selection_algorithm": "",
+            "representative_selection_algorithm_version": "",
+            "representative_selection_parameters": "",
+            "representative_selection_mapping_path": "",
+            "representative_selection_mapping_sha256": "",
+            "representative_selection_mapping_record_count": "",
+            "representative_materialization_status": "not_applicable",
             "mafft_template": command,
             "fasttree_template": command if "fasttree" in route else "",
             "iqtree2_template": "iqtree2 -s {alignment_fasta} --prefix {iqtree_prefix}",
@@ -175,6 +186,14 @@ class P08RunPhylogenyTest(unittest.TestCase):
                 command="FastTree -lg {representative_alignment_fasta} > {fasttree_tree}",
             )
             row["representative_input_fasta_path"] = str(representative_fasta)
+            row["representative_plan"] = "unmaterialized representative contract"
+            row["representative_selection_algorithm"] = "cluster_then_sha256_tiebreak"
+            row["representative_selection_algorithm_version"] = "v1"
+            row["representative_selection_parameters"] = "cluster_identity=0.99"
+            row["representative_selection_mapping_path"] = str(root / "representatives" / "mapping.tsv")
+            row["representative_selection_mapping_sha256"] = "not_materialized"
+            row["representative_selection_mapping_record_count"] = "0"
+            row["representative_materialization_status"] = "requires_separate_approval"
             manifest = self._write_manifest(root, [row])
 
             with patch("scripts.p08_run_phylogeny._executable_available", return_value=True):
@@ -214,6 +233,22 @@ class P08RunPhylogenyTest(unittest.TestCase):
             summary = runner.run_manifest(manifest, root / "status", preflight_only=True)
 
             self.assertEqual(summary["skipped_existing"], 1)
+            status = self._read_status(root / "status")[0]
+            self.assertIn("preflight integrity/resume state", status["notes"])
+
+    def test_status_binds_full_manifest_sha_and_nonexecuted_tool_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = self._write_manifest(root, [self._row(root, command="p08_missing")])
+
+            runner.run_manifest(manifest, root / "status", preflight_only=True)
+
+            status = self._read_status(root / "status")[0]
+            self.assertIn("command_manifest_path", status)
+            self.assertEqual(status.get("command_manifest_path"), str(manifest))
+            self.assertEqual(status["command_manifest_sha256"], hashlib.sha256(manifest.read_bytes()).hexdigest())
+            self.assertEqual(status["executable_version"], "not_queried_preflight_only")
+            self.assertEqual(status["preflight_environment"], "local_preflight_only_no_tool_execution")
 
     def test_status_file_is_atomic_sorted_and_replaces_interrupted_content(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
