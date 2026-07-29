@@ -1,5 +1,11 @@
 # P08 系统发育与 GTDB 映射
 
+> 溯源契约更新：P08 对每条 P07 sequence manifest 记录校验显式 GTDB release，以及
+> 标准化后的 P06 candidate table/scan manifest 路径；候选记录保留这些已验证来源及 SHA-256。
+> P07 status 只能通过实际 FASTA shard stem 和相同 `input_fasta` 关联。pool core 永远从
+> 17 个 authority seeds、15 个 cross-family challenges 和 5 个 close controls 构造；普通 P05
+> 表中的 direct core seed/control 行一律失败关闭。
+
 P08 将已接受的 P06 候选、P07 序列/注释状态、P05 参考种子和对照、以及
 GTDB R232 Bac120/Ar53 分类信息组织成可审计的家族输入和系统发育计划。家族树、
 GTDB 映射、域架构和定位信息均是序列/注释证据；它们不单独证明 PHB/PHA

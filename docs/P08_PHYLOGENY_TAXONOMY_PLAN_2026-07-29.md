@@ -1,5 +1,17 @@
 # P08 系统发育与 GTDB 分类映射计划
 
+## 最终溯源失败关闭补充
+
+P08 在读取 P07 sequence manifest 时逐行核对 `gtdb_release`，并以标准化路径核对
+`candidate_table_path` 和 `scan_manifest_path` 是否分别等于显式 P06 输入；验证后的两条
+P06 来源及 SHA-256 写回候选记录。P07 status 仅以实际 FASTA shard stem 关联，且每个工具的
+`input_fasta` 必须解析为同一实际 shard，避免同 stem 的异路径复用。
+
+`extracellular_pha_depolymerase_core` 禁止普通 P05 seed/control 表中的 direct core 行。每次
+都由 tracked authority 重新构造并验证 17 个 core seeds、15 个活跃非胞外 cross-family
+challenges 和 5 个 accessioned close controls（共 20 个 hard-panel records）。这仍是序列与
+边界对照证据，不构成 PHB/PHA degradation phenotype 或 subtype 结论。
+
 **日期：** 2026-07-29，Asia/Shanghai
 **阶段：** P08，家族系统发育输入、GTDB 分类映射和仅预检命令计划
 **当前状态：** 本地 scaffold/preflight 实现完成；T141 preflight 尚未运行；未执行
