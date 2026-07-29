@@ -122,21 +122,127 @@ class PrepareP08InputsTests(unittest.TestCase):
         )
         write_tsv(
             self.seeds,
-            ("family_category", "seed_id", "source_accession", "sequence_path", "sequence_sha256", "evidence", "notes"),
+            ("family_category", "model_sha256", "seed_id", "source_accession", "sequence_path", "sequence_sha256", "evidence", "notes"),
             [
-                {"family_category": "archaeal_patatin_like_pha_dep", "seed_id": "seed-arc", "source_accession": "ARC1", "sequence_path": str(self.seed_archaeal), "sequence_sha256": self._sha256(self.seed_archaeal), "evidence": "E3", "notes": "archaeal seed"},
-                {"family_category": "extracellular_pha_depolymerase_core", "seed_id": "seed-bac", "source_accession": "BAC1", "sequence_path": str(self.seed_bacterial), "sequence_sha256": self._sha256(self.seed_bacterial), "evidence": "E1", "notes": "bacterial seed"},
+                {"family_category": "archaeal_patatin_like_pha_dep", "model_sha256": "a" * 64, "seed_id": "seed-arc", "source_accession": "ARC1", "sequence_path": str(self.seed_archaeal), "sequence_sha256": self._sha256(self.seed_archaeal), "evidence": "E3", "notes": "archaeal seed"},
+                {"family_category": "extracellular_pha_depolymerase_core", "model_sha256": "b" * 64, "seed_id": "seed-bac", "source_accession": "BAC1", "sequence_path": str(self.seed_bacterial), "sequence_sha256": self._sha256(self.seed_bacterial), "evidence": "E1", "notes": "bacterial seed"},
             ],
         )
         write_tsv(
             self.controls,
-            ("family_category", "control_id", "control_role", "sequence_path", "sequence_sha256", "evidence", "notes"),
+            ("family_category", "model_sha256", "control_id", "control_role", "sequence_path", "sequence_sha256", "evidence", "notes"),
             [
-                {"family_category": "archaeal_patatin_like_pha_dep", "control_id": "control-arc", "control_role": "hard_negative", "sequence_path": str(self.control_archaeal), "sequence_sha256": self._sha256(self.control_archaeal), "evidence": "control", "notes": "archaeal control"},
-                {"family_category": "extracellular_pha_depolymerase_core", "control_id": "control-bac", "control_role": "hard_negative", "sequence_path": str(self.control_bacterial), "sequence_sha256": self._sha256(self.control_bacterial), "evidence": "control", "notes": "bacterial control"},
+                {"family_category": "archaeal_patatin_like_pha_dep", "model_sha256": "a" * 64, "control_id": "control-arc", "control_role": "hard_negative", "sequence_path": str(self.control_archaeal), "sequence_sha256": self._sha256(self.control_archaeal), "evidence": "control", "notes": "archaeal control"},
+                {"family_category": "extracellular_pha_depolymerase_core", "model_sha256": "b" * 64, "control_id": "control-bac", "control_role": "hard_negative", "sequence_path": str(self.control_bacterial), "sequence_sha256": self._sha256(self.control_bacterial), "evidence": "control", "notes": "bacterial control"},
             ],
         )
         self.taxonomy.write_text("GCF_000001\td__Bacteria;p__Test\nGCF_000002\td__Archaea;p__Test\n", encoding="utf-8")
+
+    def _write_authoritative_core_reference_view(self) -> tuple[Path, Path]:
+        """Replace synthetic core rows with the tracked legacy/core split schema."""
+        source_families = (
+            ("extracellular_mcl_pha_dep", "c" * 64, 6),
+            ("extracellular_scl_pha_dep_type_I", "d" * 64, 6),
+            ("extracellular_scl_pha_dep_type_II", "e" * 64, 5),
+        )
+        registry_rows = read_tsv(self.registry)
+        registry_rows.extend(
+            {"family_category": family, "approved_for_p06": "no", "scan_permission": "blocked", "model_sha256": model_sha}
+            for family, model_sha, _ in source_families
+        )
+        write_tsv(self.registry, tuple(registry_rows[0].keys()), registry_rows)
+
+        seed_rows = [row for row in read_tsv(self.seeds) if row["family_category"] != "extracellular_pha_depolymerase_core"]
+        core_rows: list[dict[str, str]] = []
+        index = 1
+        for family, model_sha, count in source_families:
+            for _ in range(count):
+                accession = f"CORE{index:02d}"
+                source = self._sequence_file(f"{accession}.faa", f">source-{accession}\nMPEPTIDE\n")
+                seed_rows.append({
+                    "family_category": family,
+                    "model_sha256": model_sha,
+                    "seed_id": f"legacy-{accession}",
+                    "source_accession": accession,
+                    "sequence_path": str(source),
+                    "sequence_sha256": self._sha256(source),
+                    "evidence": "E1",
+                    "notes": "legacy extracellular source seed",
+                })
+                core_rows.append({
+                    "family_category": "extracellular_pha_depolymerase_core",
+                    "model_sha256": "b" * 64,
+                    "seed_id": f"core-{accession}",
+                    "source_accession": accession,
+                    "sequence_path": str(source),
+                })
+                index += 1
+        write_tsv(self.seeds, tuple(seed_rows[0].keys()), seed_rows)
+
+        control_rows = [row for row in read_tsv(self.controls) if row["family_category"] != "extracellular_pha_depolymerase_core"]
+        write_tsv(self.controls, tuple(control_rows[0].keys()), control_rows)
+        core_seed_registry = self.root / "p05_extracellular_core_seed_registry.tsv"
+        write_tsv(core_seed_registry, ("family_category", "model_sha256", "seed_id", "source_accession", "sequence_path"), core_rows)
+        close_controls = self.root / "p05_extracellular_core_close_controls.tsv"
+        residue_sha = hashlib.sha256(b"AAAA").hexdigest()
+        write_tsv(
+            close_controls,
+            ("family_category", "source_accession", "sequence_path", "notes"),
+            [{
+                "family_category": "cutinase_like_non_target",
+                "source_accession": "CLOSE1",
+                "sequence_path": str(self.control_bacterial),
+                "notes": f"Hard close non-target control; residue SHA256 is {residue_sha}.",
+            }],
+        )
+        return core_seed_registry, close_controls
+
+    def _add_route_family(self, family: str, candidate_count: int) -> None:
+        fasta = self.root / f"{family}.faa"
+        fasta.write_text("".join(f">p07-{family}-{index}\nM\n" for index in range(candidate_count)), encoding="utf-8")
+        p06_rows = read_tsv(self.p06)
+        p07_rows = read_tsv(self.p07_sequences)
+        for index in range(candidate_count):
+            target_id = f"{family}-{index}"
+            p06_rows.append({
+                "family_category": family,
+                "proteome_shard": family,
+                "target_id": target_id,
+                "target_accession": target_id,
+                "target_length": "1",
+                "full_sequence_score": "200.0",
+                "hmm_coverage": "0.9",
+                "tier": "High-confidence",
+            })
+            p07_rows.append({
+                "p07_sequence_id": f"p07-{family}-{index}",
+                "proteome_shard": family,
+                "target_id": target_id,
+                "source_proteome_path": "/machine/GB_GCF_000001.faa.gz",
+                "target_length_from_p06": "1",
+                "sequence_length": "1",
+                "family_categories": family,
+                "fasta_shard": str(fasta),
+            })
+        write_tsv(self.p06, P06_FIELDS, p06_rows)
+        write_tsv(self.p07_sequences, P07_SEQUENCE_FIELDS, p07_rows)
+
+        status_rows = read_tsv(self.p07_status)
+        status_rows.extend({"tool": tool, "fasta_shard": str(fasta), "status": "completed"} for tool in REQUIRED_P07_TOOLS)
+        write_tsv(self.p07_status, ("tool", "fasta_shard", "status"), status_rows)
+
+        model_sha = hashlib.sha256(family.encode("ascii")).hexdigest()
+        registry_rows = read_tsv(self.registry)
+        registry_rows.append({"family_category": family, "approved_for_p06": "yes", "scan_permission": "approved", "model_sha256": model_sha})
+        write_tsv(self.registry, tuple(registry_rows[0].keys()), registry_rows)
+        seed = self._sequence_file(f"{family}.seed.faa", ">seed\nM\n")
+        control = self._sequence_file(f"{family}.control.faa", ">control\nA\n")
+        seed_rows = read_tsv(self.seeds)
+        seed_rows.append({"family_category": family, "model_sha256": model_sha, "seed_id": f"seed-{family}", "source_accession": f"SEED-{family}", "sequence_path": str(seed), "sequence_sha256": self._sha256(seed), "evidence": "E1", "notes": "route seed"})
+        write_tsv(self.seeds, tuple(seed_rows[0].keys()), seed_rows)
+        control_rows = read_tsv(self.controls)
+        control_rows.append({"family_category": family, "model_sha256": model_sha, "control_id": f"control-{family}", "control_role": "hard_negative", "sequence_path": str(control), "sequence_sha256": self._sha256(control), "evidence": "control", "notes": "route control"})
+        write_tsv(self.controls, tuple(control_rows[0].keys()), control_rows)
 
     def _prepare(self, **kwargs: object) -> dict[str, Path]:
         outdir = kwargs.pop("outdir", self.outdir)
@@ -181,6 +287,42 @@ class PrepareP08InputsTests(unittest.TestCase):
             self._prepare()
         blocks = read_tsv(self.outdir / "review" / "p08_blocked_records.tsv")
         self.assertTrue(any("P06/P07 sequence length mismatch" in row["reason"] for row in blocks))
+
+    def test_malformed_p06_or_p07_length_blocks_and_writes_review(self) -> None:
+        p06_rows = read_tsv(self.p06)
+        p07_rows = read_tsv(self.p07_sequences)
+        p06_rows[0]["target_length"] = "not-a-length"
+        p07_rows[0]["target_length_from_p06"] = "not-a-length"
+        p07_rows[0]["sequence_length"] = "not-a-length"
+        write_tsv(self.p06, P06_FIELDS, p06_rows)
+        write_tsv(self.p07_sequences, P07_SEQUENCE_FIELDS, p07_rows)
+        with self.assertRaisesRegex(ValueError, "P06/P07 target length is not a positive integer"):
+            self._prepare()
+        blocks = read_tsv(self.outdir / "review" / "p08_blocked_records.tsv")
+        self.assertTrue(any(row["reason"] == "P06/P07 target length is not a positive integer" for row in blocks))
+
+    def test_duplicate_p07_join_key_blocks_and_writes_review(self) -> None:
+        rows = read_tsv(self.p07_sequences)
+        duplicate = dict(rows[0])
+        duplicate["p07_sequence_id"] = "p07-arc1-duplicate"
+        rows.append(duplicate)
+        write_tsv(self.p07_sequences, P07_SEQUENCE_FIELDS, rows)
+        with self.assertRaisesRegex(ValueError, "duplicate P07 join key"):
+            self._prepare()
+        blocks = read_tsv(self.outdir / "review" / "p08_blocked_records.tsv")
+        self.assertTrue(any(row["reason"] == "duplicate P07 join key" for row in blocks))
+
+    def test_duplicate_p07_sequence_id_blocks_and_writes_review(self) -> None:
+        rows = read_tsv(self.p07_sequences)
+        duplicate = dict(rows[0])
+        duplicate["proteome_shard"] = "another_shard"
+        duplicate["target_id"] = "another_target"
+        rows.append(duplicate)
+        write_tsv(self.p07_sequences, P07_SEQUENCE_FIELDS, rows)
+        with self.assertRaisesRegex(ValueError, "duplicate P07 sequence ID"):
+            self._prepare()
+        blocks = read_tsv(self.outdir / "review" / "p08_blocked_records.tsv")
+        self.assertTrue(any(row["reason"] == "duplicate P07 sequence ID" for row in blocks))
 
     def test_missing_taxonomy_blocks_and_writes_review(self) -> None:
         self.taxonomy.write_text("GCF_000001\td__Bacteria;p__Test\n", encoding="utf-8")
@@ -252,6 +394,74 @@ class PrepareP08InputsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "SHA-256 mismatch"):
             self._prepare()
         self.assertTrue((self.outdir / "review" / "p08_blocked_records.tsv").exists())
+
+    def test_seed_model_hash_mismatch_blocks_before_outputs_are_written(self) -> None:
+        rows = read_tsv(self.seeds)
+        rows[0]["model_sha256"] = "0" * 64
+        write_tsv(self.seeds, tuple(rows[0].keys()), rows)
+        with self.assertRaisesRegex(ValueError, "P05 reference model SHA-256 mismatch"):
+            self._prepare()
+        blocks = read_tsv(self.outdir / "review" / "p08_blocked_records.tsv")
+        block = next(row for row in blocks if row["reason"] == "P05 reference model SHA-256 mismatch")
+        self.assertEqual(block["family_category"], "archaeal_patatin_like_pha_dep")
+        self.assertEqual(block["source_path"], str(self.seed_archaeal))
+        self.assertIn("seed_id=seed-arc", block["notes"])
+        self.assertFalse((self.outdir / "manifests" / "p08_family_input_manifest.tsv").exists())
+
+    def test_control_model_hash_mismatch_blocks_before_outputs_are_written(self) -> None:
+        rows = read_tsv(self.controls)
+        rows[0]["model_sha256"] = "0" * 64
+        write_tsv(self.controls, tuple(rows[0].keys()), rows)
+        with self.assertRaisesRegex(ValueError, "P05 reference model SHA-256 mismatch"):
+            self._prepare()
+        blocks = read_tsv(self.outdir / "review" / "p08_blocked_records.tsv")
+        block = next(row for row in blocks if row["reason"] == "P05 reference model SHA-256 mismatch")
+        self.assertEqual(block["family_category"], "archaeal_patatin_like_pha_dep")
+        self.assertEqual(block["source_path"], str(self.control_archaeal))
+        self.assertIn("control_id=control-arc", block["notes"])
+        self.assertFalse((self.outdir / "manifests" / "p08_phylogeny_command_manifest.tsv").exists())
+
+    def test_authoritative_core_reference_view_derives_17_seeds_and_controls_without_subtype_output(self) -> None:
+        core_seed_registry, _ = self._write_authoritative_core_reference_view()
+        outputs = self._prepare()
+        input_rows = read_tsv(outputs["family_input_manifest"])
+        core_rows = [row for row in input_rows if row["family_category"] == "extracellular_pha_depolymerase_core"]
+        core_seeds = [row for row in core_rows if row["record_kind"] == "seed"]
+        core_controls = [row for row in core_rows if row["record_kind"] == "control"]
+        self.assertEqual(len(core_seeds), 17)
+        self.assertEqual(len(core_controls), 2)
+        self.assertEqual({row["model_sha256"] for row in core_rows}, {"b" * 64})
+        self.assertEqual({row["model_provenance"] for row in core_seeds}, {"derived_core_seed_registry"})
+        self.assertEqual({row["model_provenance_source_path"] for row in core_seeds}, {str(core_seed_registry)})
+        self.assertEqual({row["source_model_sha256"] for row in core_seeds}, {"c" * 64, "d" * 64, "e" * 64})
+        command_families = {row["family_category"] for row in read_tsv(outputs["phylogeny_command_manifest"])}
+        self.assertEqual(command_families, {"archaeal_patatin_like_pha_dep", "extracellular_pha_depolymerase_core"})
+
+    def test_authoritative_core_seed_registry_hash_mismatch_blocks_and_writes_review(self) -> None:
+        core_seed_registry, _ = self._write_authoritative_core_reference_view()
+        rows = read_tsv(core_seed_registry)
+        rows[0]["model_sha256"] = "0" * 64
+        write_tsv(core_seed_registry, tuple(rows[0].keys()), rows)
+        with self.assertRaisesRegex(ValueError, "core seed registry model SHA-256 mismatch"):
+            self._prepare()
+        blocks = read_tsv(self.outdir / "review" / "p08_blocked_records.tsv")
+        self.assertTrue(any(row["reason"] == "core seed registry model SHA-256 mismatch" for row in blocks))
+
+    def test_command_manifest_routes_199_200_and_2001_candidates_end_to_end(self) -> None:
+        for family, count in (("route_199", 199), ("route_200", 200), ("route_2001", 2001)):
+            self._add_route_family(family, count)
+        rows = {row["family_category"]: row for row in read_tsv(self._prepare()["phylogeny_command_manifest"])}
+        self.assertEqual(rows["route_199"]["candidate_input_record_count"], "199")
+        self.assertEqual(rows["route_199"]["route"], "mafft_linsi_then_review")
+        self.assertIn("mafft --localpair --maxiterate 1000", rows["route_199"]["mafft_template"])
+        self.assertEqual(rows["route_200"]["candidate_input_record_count"], "200")
+        self.assertEqual(rows["route_200"]["route"], "mafft_auto_then_review")
+        self.assertIn("mafft --auto", rows["route_200"]["mafft_template"])
+        self.assertEqual(rows["route_2001"]["candidate_input_record_count"], "2001")
+        self.assertEqual(rows["route_2001"]["route"], "deterministic_representative_plan_then_fasttree_exploratory")
+        self.assertIn("deterministic", rows["route_2001"]["representative_plan"])
+        self.assertEqual(rows["route_2001"]["fasttree_template"], "FastTree -lg {representative_alignment_fasta} > {fasttree_tree}")
+        self.assertTrue(all(rows[family]["command_status"] == "planned_not_run" for family in ("route_199", "route_200", "route_2001")))
 
     def test_route_family_size_boundaries(self) -> None:
         self.assertEqual(route_family_size(199), "mafft_linsi_then_review")
@@ -352,6 +562,7 @@ class PrepareP08InputsTests(unittest.TestCase):
         self.assertTrue(any(row["reason"] == "reference FASTA malformed" for row in blocks))
 
         checksum_outdir = self.root / "checksum-conflict"
+        self.seed_archaeal.write_text(">seed-a\nMKKK\n", encoding="utf-8")
         self._write_complete_fixture()
         rows = read_tsv(self.seeds)
         rows[0]["sequence_sha256"] = "0" * 64

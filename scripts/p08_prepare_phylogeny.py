@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import re
 import subprocess
 from collections import defaultdict
 from pathlib import Path
@@ -25,11 +26,17 @@ P06_FIELDS = ("family_category", "proteome_shard", "target_id", "target_accessio
 P07_SEQUENCE_FIELDS = ("p07_sequence_id", "proteome_shard", "target_id", "source_proteome_path", "target_length_from_p06", "sequence_length", "family_categories", "fasta_shard")
 P07_STATUS_FIELDS = ("tool", "fasta_shard", "status")
 REGISTRY_FIELDS = ("family_category", "approved_for_p06", "scan_permission", "model_sha256")
-SEED_FIELDS = ("family_category", "seed_id", "source_accession", "sequence_path", "sequence_sha256")
-CONTROL_FIELDS = ("family_category", "control_id", "control_role", "sequence_path", "sequence_sha256")
+SEED_FIELDS = ("family_category", "model_sha256", "seed_id", "source_accession", "sequence_path", "sequence_sha256")
+CONTROL_FIELDS = ("family_category", "model_sha256", "control_id", "control_role", "sequence_path", "sequence_sha256")
+CORE_FAMILY = "extracellular_pha_depolymerase_core"
+CORE_SEED_REGISTRY_FILENAME = "p05_extracellular_core_seed_registry.tsv"
+CORE_CLOSE_CONTROLS_FILENAME = "p05_extracellular_core_close_controls.tsv"
+CORE_SEED_FIELDS = ("family_category", "model_sha256", "seed_id", "source_accession", "sequence_path")
+CORE_CLOSE_CONTROL_FIELDS = ("source_accession", "sequence_path", "notes")
 FAMILY_INPUT_FIELDS = (
     "family_category", "record_kind", "record_identity", "input_fasta_path", "input_sha256",
-    "source_path", "source_sha256", "model_sha256", "p06_proteome_shard", "p06_target_id",
+    "source_path", "source_sha256", "source_checksum_kind", "model_sha256", "source_model_sha256",
+    "model_provenance", "model_provenance_source_path", "p06_proteome_shard", "p06_target_id",
     "p07_sequence_id", "source_accession_or_assembly", "evidence_or_control_role",
     "is_gtdb_candidate", "evidence_boundary",
 )
@@ -158,6 +165,11 @@ def _read_fasta(path: Path) -> dict[str, str]:
     return records
 
 
+def _residue_sha256(sequence: str) -> str:
+    """Hash normalized residues for legacy P05 calibration-control records."""
+    return hashlib.sha256(sequence.encode("ascii")).hexdigest()
+
+
 def _fasta_safe(value: str) -> str:
     """Return a deterministic non-opaque FASTA-header component."""
     cleaned = "".join(character if character.isalnum() or character in "_.-" else "-" for character in value.strip())
@@ -241,32 +253,114 @@ def prepare_p08_inputs(
     if not selected:
         _fail(outdir, blocks, "P06 candidate table has no selected tiers", source_path=str(p06_candidate_table))
 
-    p07_by_key = {(row["proteome_shard"], row["target_id"]): row for row in p07_rows}
+    p07_by_key: dict[tuple[str, str], dict[str, str]] = {}
+    p07_ids: set[str] = set()
+    for row in p07_rows:
+        key = (row["proteome_shard"], row["target_id"])
+        if key in p07_by_key:
+            _fail(outdir, blocks, "duplicate P07 join key", proteome_shard=key[0], target_id=key[1], source_path=str(p07_sequence_table), notes=f"p07_sequence_id={row['p07_sequence_id']}")
+        if row["p07_sequence_id"] in p07_ids:
+            _fail(outdir, blocks, "duplicate P07 sequence ID", proteome_shard=key[0], target_id=key[1], source_path=str(p07_sequence_table), notes=f"p07_sequence_id={row['p07_sequence_id']}")
+        p07_by_key[key] = row
+        p07_ids.add(row["p07_sequence_id"])
     statuses = {(row["tool"], Path(row["fasta_shard"]).stem): row["status"] for row in status_rows}
     try:
         taxonomy = load_taxonomy([Path(path) for path in taxonomy_paths])
     except (OSError, ValueError) as error:
         _fail(outdir, blocks, f"taxonomy loading failed: {error}", source_path=", ".join(map(str, taxonomy_paths)))
 
+    registry_by_family = {row["family_category"]: row for row in registry_rows}
     references_by_family: dict[str, list[dict[str, str]]] = defaultdict(list)
-    for record_kind, rows, identifier_field in (("seed", seed_rows, "seed_id"), ("control", control_rows, "control_id")):
+    seed_reference_by_accession: dict[str, dict[str, str]] = {}
+    for record_kind, rows, identifier_field, provenance_table in (("seed", seed_rows, "seed_id", p05_seed_table), ("control", control_rows, "control_id", p05_control_table)):
         for row in rows:
             path = Path(row["sequence_path"])
+            source_model = registry_by_family.get(row["family_category"])
+            if source_model is None or row["model_sha256"] != source_model["model_sha256"]:
+                _fail(outdir, blocks, "P05 reference model SHA-256 mismatch", family_category=row["family_category"], source_path=str(path), notes=f"{identifier_field}={row[identifier_field]}; declared_model_sha256={row['model_sha256']}; registry_model_sha256={(source_model or {}).get('model_sha256', 'missing')}")
             try:
-                verified = _sha256(path)
+                verified_file_sha256 = _sha256(path)
             except OSError as error:
                 _fail(outdir, blocks, f"sequence file unreadable: {path}", family_category=row["family_category"], source_path=str(path), notes=str(error))
-            if verified != row["sequence_sha256"]:
-                _fail(outdir, blocks, "SHA-256 mismatch", family_category=row["family_category"], source_path=str(path), notes=f"{identifier_field}={row[identifier_field]}")
             try:
                 fasta_records = _read_fasta(path)
             except (OSError, ValueError) as error:
                 _fail(outdir, blocks, "reference FASTA malformed", family_category=row["family_category"], source_path=str(path), notes=f"{identifier_field}={row[identifier_field]}; {error}")
             if len(fasta_records) != 1:
                 _fail(outdir, blocks, "reference FASTA malformed", family_category=row["family_category"], source_path=str(path), notes=f"{identifier_field}={row[identifier_field]}; expected exactly one FASTA record")
-            references_by_family[row["family_category"]].append({
-                "family_category": row["family_category"], "record_kind": record_kind, "record_id": row[identifier_field], "source_accession": row.get("source_accession", ""), "control_role": row.get("control_role", ""), "sequence_path": str(path), "sequence_sha256": row["sequence_sha256"], "verified_sha256": verified, "evidence": row.get("evidence", ""), "notes": row.get("notes", ""), "sequence": next(iter(fasta_records.values())), "source_accession_or_assembly": row.get("source_accession", "") or row[identifier_field],
+            sequence = next(iter(fasta_records.values()))
+            checksum_kind = "residue_sha256" if record_kind == "control" and "hard_negative" in row else "file_sha256"
+            verified = _residue_sha256(sequence) if checksum_kind == "residue_sha256" else verified_file_sha256
+            if verified != row["sequence_sha256"]:
+                _fail(outdir, blocks, "SHA-256 mismatch", family_category=row["family_category"], source_path=str(path), notes=f"{identifier_field}={row[identifier_field]}; checksum_kind={checksum_kind}")
+            reference = {
+                "family_category": row["family_category"], "record_kind": record_kind, "record_id": row[identifier_field], "source_accession": row.get("source_accession", ""), "control_role": row.get("control_role", ""), "sequence_path": str(path), "sequence_sha256": row["sequence_sha256"], "verified_sha256": verified, "source_checksum_kind": checksum_kind, "model_sha256": row["model_sha256"], "source_model_sha256": row["model_sha256"], "model_provenance": "direct_p05_registry", "model_provenance_source_path": str(provenance_table), "evidence": row.get("evidence", ""), "notes": row.get("notes", ""), "sequence": sequence, "source_accession_or_assembly": row.get("source_accession", "") or row[identifier_field],
+            }
+            references_by_family[row["family_category"]].append(reference)
+            if record_kind == "seed":
+                accession = row.get("source_accession", "")
+                if accession in seed_reference_by_accession:
+                    _fail(outdir, blocks, "duplicate P05 seed source accession", family_category=row["family_category"], source_path=str(path), notes=f"source_accession={accession}")
+                seed_reference_by_accession[accession] = reference
+
+    selected_families = {row["family_category"] for row in selected}
+    if CORE_FAMILY in selected_families and not any(row["record_kind"] == "seed" for row in references_by_family[CORE_FAMILY]):
+        core_model = approved_models[CORE_FAMILY]
+        core_seed_path = Path(p05_seed_table).parent / CORE_SEED_REGISTRY_FILENAME
+        try:
+            core_seed_rows = _read_tsv(core_seed_path, CORE_SEED_FIELDS, "P05 extracellular core seed registry")
+        except ValueError as error:
+            _fail(outdir, blocks, "missing authoritative core seed registry", family_category=CORE_FAMILY, source_path=str(core_seed_path), notes=str(error))
+        expected_count = core_model.get("seed_sequence_count", "")
+        if expected_count and (not expected_count.isdigit() or len(core_seed_rows) != int(expected_count)):
+            _fail(outdir, blocks, "core seed registry count mismatch", family_category=CORE_FAMILY, source_path=str(core_seed_path), notes=f"registry_seed_sequence_count={expected_count}; core_seed_rows={len(core_seed_rows)}")
+        seen_core_accessions: set[str] = set()
+        for row in core_seed_rows:
+            accession = row["source_accession"]
+            if row["family_category"] != CORE_FAMILY or row["model_sha256"] != core_model["model_sha256"]:
+                _fail(outdir, blocks, "core seed registry model SHA-256 mismatch", family_category=CORE_FAMILY, source_path=str(core_seed_path), notes=f"seed_id={row['seed_id']}; declared_model_sha256={row['model_sha256']}; registry_model_sha256={core_model['model_sha256']}")
+            if accession in seen_core_accessions or accession not in seed_reference_by_accession:
+                _fail(outdir, blocks, "core seed registry source accession mismatch", family_category=CORE_FAMILY, source_path=str(core_seed_path), notes=f"seed_id={row['seed_id']}; source_accession={accession}")
+            source = seed_reference_by_accession[accession]
+            if Path(row["sequence_path"]) != Path(source["sequence_path"]):
+                _fail(outdir, blocks, "core seed registry sequence path mismatch", family_category=CORE_FAMILY, source_path=str(core_seed_path), notes=f"seed_id={row['seed_id']}; source_accession={accession}")
+            seen_core_accessions.add(accession)
+            references_by_family[CORE_FAMILY].append({
+                **source, "family_category": CORE_FAMILY, "record_kind": "seed", "record_id": row["seed_id"],
+                "model_sha256": core_model["model_sha256"], "source_model_sha256": source["model_sha256"],
+                "model_provenance": "derived_core_seed_registry", "model_provenance_source_path": str(core_seed_path),
             })
+        if not any(row["record_kind"] == "control" for row in references_by_family[CORE_FAMILY]):
+            for source in sorted((row for family, records in references_by_family.items() if family in approved_models and family != CORE_FAMILY for row in records if row["record_kind"] == "seed"), key=lambda row: (row["family_category"], row["source_accession"])):
+                references_by_family[CORE_FAMILY].append({
+                    **source, "family_category": CORE_FAMILY, "record_kind": "control",
+                    "record_id": f"{CORE_FAMILY}|cross_family_challenge|{source['family_category']}|{source['source_accession']}",
+                    "control_role": "cross_family_challenge", "model_sha256": core_model["model_sha256"],
+                    "source_model_sha256": source["model_sha256"], "model_provenance": "derived_core_cross_family_control", "model_provenance_source_path": str(p05_seed_table),
+                })
+            close_controls_path = Path(p05_seed_table).parent / CORE_CLOSE_CONTROLS_FILENAME
+            try:
+                close_rows = _read_tsv(close_controls_path, CORE_CLOSE_CONTROL_FIELDS, "P05 extracellular core close controls")
+            except ValueError as error:
+                _fail(outdir, blocks, "missing authoritative core close controls", family_category=CORE_FAMILY, source_path=str(close_controls_path), notes=str(error))
+            for row in close_rows:
+                match = re.search(r"residue SHA256 is ([0-9a-f]{64})", row["notes"])
+                if match is None:
+                    _fail(outdir, blocks, "core close-control checksum provenance missing", family_category=CORE_FAMILY, source_path=str(close_controls_path), notes=f"source_accession={row['source_accession']}")
+                path = Path(row["sequence_path"])
+                try:
+                    fasta_records = _read_fasta(path)
+                except (OSError, ValueError) as error:
+                    _fail(outdir, blocks, "reference FASTA malformed", family_category=CORE_FAMILY, source_path=str(path), notes=f"source_accession={row['source_accession']}; {error}")
+                if len(fasta_records) != 1:
+                    _fail(outdir, blocks, "reference FASTA malformed", family_category=CORE_FAMILY, source_path=str(path), notes=f"source_accession={row['source_accession']}; expected exactly one FASTA record")
+                sequence = next(iter(fasta_records.values()))
+                expected_sha256 = match.group(1)
+                if _residue_sha256(sequence) != expected_sha256:
+                    _fail(outdir, blocks, "SHA-256 mismatch", family_category=CORE_FAMILY, source_path=str(path), notes=f"source_accession={row['source_accession']}; checksum_kind=residue_sha256")
+                references_by_family[CORE_FAMILY].append({
+                    "family_category": CORE_FAMILY, "record_kind": "control", "record_id": f"{CORE_FAMILY}|close_non_target_hydrolase|{row['family_category']}|{row['source_accession']}", "source_accession": row["source_accession"], "control_role": "close_non_target_hydrolase", "sequence_path": str(path), "sequence_sha256": expected_sha256, "verified_sha256": expected_sha256, "source_checksum_kind": "residue_sha256", "model_sha256": core_model["model_sha256"], "source_model_sha256": "", "model_provenance": "derived_core_close_control", "model_provenance_source_path": str(close_controls_path), "evidence": row.get("evidence_level", ""), "notes": row["notes"], "sequence": sequence, "source_accession_or_assembly": row["source_accession"],
+                })
 
     candidate_rows: list[dict[str, str]] = []
     candidate_fasta_records: list[dict[str, str]] = []
@@ -283,7 +377,11 @@ def prepare_p08_inputs(
         p07 = p07_by_key.get(key)
         if p07 is None:
             _fail(outdir, blocks, "missing P07 sequence match", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=str(p07_sequence_table))
-        if p06["target_length"] != p07["target_length_from_p06"] or p06["target_length"] != p07["sequence_length"]:
+        length_text = (p06["target_length"], p07["target_length_from_p06"], p07["sequence_length"])
+        if any(not value.isdigit() or int(value) <= 0 for value in length_text):
+            _fail(outdir, blocks, "P06/P07 target length is not a positive integer", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=str(p07_sequence_table), notes=f"p06_target_length={length_text[0]}; p07_target_length_from_p06={length_text[1]}; p07_sequence_length={length_text[2]}")
+        expected_length = int(p06["target_length"])
+        if len({expected_length, int(p07["target_length_from_p06"]), int(p07["sequence_length"])}) != 1:
             _fail(outdir, blocks, "P06/P07 sequence length mismatch", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=str(p07_sequence_table))
         fasta_path = Path(p07["fasta_shard"])
         cached = candidate_fasta_cache.get(str(fasta_path))
@@ -299,7 +397,7 @@ def prepare_p08_inputs(
         sequence = candidate_source_records.get(p07["p07_sequence_id"])
         if sequence is None:
             _fail(outdir, blocks, "candidate FASTA missing p07_sequence_id", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=str(fasta_path), notes=f"p07_sequence_id={p07['p07_sequence_id']}")
-        if len(sequence) != int(p06["target_length"]):
+        if len(sequence) != expected_length:
             _fail(outdir, blocks, "candidate FASTA sequence length mismatch", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=str(fasta_path), notes=f"p07_sequence_id={p07['p07_sequence_id']}; expected_length={p06['target_length']}; fasta_length={len(sequence)}")
         shard_stem = Path(p07["fasta_shard"]).stem
         status_detail = "; ".join(f"{tool}={statuses.get((tool, shard_stem), 'missing')}" for tool in REQUIRED_P07_TOOLS)
@@ -320,7 +418,8 @@ def prepare_p08_inputs(
             "model_sha256": approved_models[family]["model_sha256"], "p06_proteome_shard": p06["proteome_shard"],
             "p06_target_id": p06["target_id"], "p07_sequence_id": p07["p07_sequence_id"],
             "source_accession_or_assembly": assembly_accession, "evidence_or_control_role": p06["tier"],
-            "is_gtdb_candidate": "yes",
+            "is_gtdb_candidate": "yes", "source_checksum_kind": "file_sha256",
+            "source_model_sha256": approved_models[family]["model_sha256"], "model_provenance": "candidate_from_approved_model", "model_provenance_source_path": str(p05_model_registry),
         })
         taxonomy_rows.append({"family_category": family, "proteome_shard": p06["proteome_shard"], "target_id": p06["target_id"], "assembly_accession": assembly_accession, "taxonomy_lineage": lineage})
 
@@ -347,7 +446,9 @@ def prepare_p08_inputs(
             reference_inputs.append({
                 "family_category": family, "record_kind": reference["record_kind"], "record_id": reference["record_id"],
                 "sequence": reference["sequence"], "source_path": reference["sequence_path"],
-                "source_sha256": reference["verified_sha256"], "model_sha256": approved_models[family]["model_sha256"],
+                "source_sha256": reference["verified_sha256"], "source_checksum_kind": reference["source_checksum_kind"],
+                "model_sha256": reference["model_sha256"], "source_model_sha256": reference["source_model_sha256"],
+                "model_provenance": reference["model_provenance"], "model_provenance_source_path": reference["model_provenance_source_path"],
                 "p06_proteome_shard": "", "p06_target_id": "", "p07_sequence_id": "",
                 "source_accession_or_assembly": reference["source_accession_or_assembly"],
                 "evidence_or_control_role": reference["control_role"] or reference["evidence"], "is_gtdb_candidate": "no",
@@ -361,7 +462,9 @@ def prepare_p08_inputs(
             family_input_rows.append({
                 "family_category": family, "record_kind": input_row["record_kind"], "record_identity": record_identity,
                 "input_fasta_path": str(fasta_path), "input_sha256": input_sha256, "source_path": input_row["source_path"],
-                "source_sha256": input_row["source_sha256"], "model_sha256": input_row["model_sha256"],
+                "source_sha256": input_row["source_sha256"], "source_checksum_kind": input_row["source_checksum_kind"],
+                "model_sha256": input_row["model_sha256"], "source_model_sha256": input_row["source_model_sha256"],
+                "model_provenance": input_row["model_provenance"], "model_provenance_source_path": input_row["model_provenance_source_path"],
                 "p06_proteome_shard": input_row["p06_proteome_shard"], "p06_target_id": input_row["p06_target_id"],
                 "p07_sequence_id": input_row["p07_sequence_id"], "source_accession_or_assembly": input_row["source_accession_or_assembly"],
                 "evidence_or_control_role": input_row["evidence_or_control_role"], "is_gtdb_candidate": input_row["is_gtdb_candidate"],
