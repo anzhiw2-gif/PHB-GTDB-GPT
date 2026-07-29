@@ -54,6 +54,10 @@
 07_phylogeny/trees/
 07_phylogeny/gtdb_mapping/
 07_phylogeny/annotations/
+07_phylogeny/manifests/
+07_phylogeny/review/
+07_phylogeny/run_status/
+07_phylogeny/run_logs/
 08_reports/tables/
 08_reports/figures/
 08_reports/qc/

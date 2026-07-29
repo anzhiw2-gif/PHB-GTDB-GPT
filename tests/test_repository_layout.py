@@ -95,6 +95,26 @@ class RepositoryLayoutTest(unittest.TestCase):
                 )
                 self.assertEqual(ignored.returncode, 0, ignored.stderr)
 
+    def test_generated_p08_outputs_are_ignored(self) -> None:
+        paths = [
+            "07_phylogeny/manifests/p08_candidate_manifest.tsv",
+            "07_phylogeny/manifests/p08_phylogeny_command_manifest.tsv",
+            "07_phylogeny/review/p08_blocked_records.tsv",
+            "07_phylogeny/gtdb_mapping/p08_taxonomy_join.tsv",
+            "07_phylogeny/run_status/p08_phylogeny_run_status.tsv",
+            "07_phylogeny/run_logs/mafft__family.stderr.log",
+        ]
+        for path in paths:
+            with self.subTest(path=path):
+                ignored = subprocess.run(
+                    ["git", "check-ignore", path],
+                    cwd=ROOT,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(ignored.returncode, 0, ignored.stderr)
+
     def test_repository_validator_succeeds(self) -> None:
         result = subprocess.run(
             [sys.executable, "scripts/validate_repository.py"],
