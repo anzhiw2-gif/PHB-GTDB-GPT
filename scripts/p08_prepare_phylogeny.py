@@ -34,6 +34,11 @@ P06_FIELDS = (
     "full_sequence_score", "hmm_coverage", "calibrated_full_score_threshold",
     "calibrated_hmm_coverage_threshold", "tier",
 )
+P06_TARGET_LEVEL_FIELDS = (
+    "target_accession", "target_length", "full_sequence_score",
+    "calibrated_full_score_threshold", "calibrated_hmm_coverage_threshold",
+)
+P06_DOMAIN_SELECTION_RULE = "highest_tier_then_max_hmm_coverage_then_full_row_lexical"
 P07_SEQUENCE_FIELDS = (
     "p07_sequence_id", "proteome_shard", "target_id", "source_proteome_path",
     "target_length_from_p06", "sequence_length", "family_categories", "fasta_shard",
@@ -421,6 +426,64 @@ def _fail(outdir: Path, blocks: list[dict[str, str]], message: str, **context: s
     raise ValueError(message)
 
 
+def _collapse_selected_p06_domain_rows(
+    rows: Sequence[dict[str, str]],
+    *,
+    outdir: Path,
+    blocks: list[dict[str, str]],
+    source_path: Path,
+) -> list[dict[str, str]]:
+    """Reduce selected HMMER domain rows to deterministic target-level candidates."""
+    groups: dict[tuple[str, str, str], list[dict[str, str]]] = defaultdict(list)
+    for row in rows:
+        key = (row["family_category"], row["proteome_shard"], row["target_id"])
+        groups[key].append(row)
+
+    tier_rank = {"High-confidence": 2, "Review": 1}
+    collapsed: list[dict[str, str]] = []
+    for key, group in sorted(groups.items()):
+        for field in P06_TARGET_LEVEL_FIELDS:
+            values = {row[field] for row in group}
+            if len(values) != 1:
+                _fail(
+                    outdir,
+                    blocks,
+                    "P06 target-level field mismatch",
+                    family_category=key[0],
+                    proteome_shard=key[1],
+                    target_id=key[2],
+                    source_path=str(source_path),
+                    notes=f"field={field}; values={';'.join(sorted(values))}",
+                )
+
+        observed_tiers = tuple(
+            sorted({row["tier"] for row in group}, key=lambda tier: (-tier_rank[tier], tier))
+        )
+        best_tier_rows = [row for row in group if row["tier"] == observed_tiers[0]]
+        try:
+            representative = min(
+                best_tier_rows,
+                key=lambda row: (-float(row["hmm_coverage"]), tuple(sorted(row.items()))),
+            )
+        except ValueError as error:
+            _fail(
+                outdir,
+                blocks,
+                "P06 HMM coverage is not numeric",
+                family_category=key[0],
+                proteome_shard=key[1],
+                target_id=key[2],
+                source_path=str(source_path),
+                notes=str(error),
+            )
+        collapsed.append({
+            **representative,
+            "_p06_target_domain_row_count": str(len(group)),
+            "_p06_observed_selected_tiers": ";".join(observed_tiers),
+        })
+    return collapsed
+
+
 def prepare_p08_inputs(
     *,
     p06_candidate_table: Path,
@@ -485,12 +548,6 @@ def prepare_p08_inputs(
         p03_qc_rows, "P03 prediction QC", outdir, blocks, provenance_paths["p03_prediction_qc"]
     )
 
-    p06_keys: set[tuple[str, str, str]] = set()
-    for row in p06_rows:
-        key = (row["family_category"], row["proteome_shard"], row["target_id"])
-        if key in p06_keys:
-            _fail(outdir, blocks, "duplicate identical P06 row key", family_category=key[0], proteome_shard=key[1], target_id=key[2], source_path=str(p06_candidate_table))
-        p06_keys.add(key)
     approved_models = {row["family_category"]: row for row in registry_rows if is_approved_model(row)}
     registry_families = {row["family_category"] for row in registry_rows}
     for row in p06_rows:
@@ -502,6 +559,12 @@ def prepare_p08_inputs(
     selected = [row for row in p06_rows if row["tier"] in include_tiers]
     if not selected:
         _fail(outdir, blocks, "P06 candidate table has no selected tiers", source_path=str(p06_candidate_table))
+    selected = _collapse_selected_p06_domain_rows(
+        selected,
+        outdir=outdir,
+        blocks=blocks,
+        source_path=Path(p06_candidate_table),
+    )
     selected_families = {row["family_category"] for row in selected}
     if CORE_FAMILY in selected_families:
         if any(row["family_category"] == CORE_FAMILY for row in seed_rows):
@@ -786,6 +849,10 @@ def prepare_p08_inputs(
         lineage = taxonomy_record["lineage"]
         candidate = {
             **{field: p06[field] for field in P06_FIELDS},
+            "p06_target_domain_row_count": p06["_p06_target_domain_row_count"],
+            "p06_observed_selected_tiers": p06["_p06_observed_selected_tiers"],
+            "p06_selected_domain_index": p06.get("domain_index", ""),
+            "p06_domain_selection_rule": P06_DOMAIN_SELECTION_RULE,
             "gtdb_release": expected_gtdb_release, "p07_declared_gtdb_release": p07["gtdb_release"],
             "p06_candidate_table_path": str(expected_candidate_table), "p06_candidate_table_sha256": expected_candidate_table_sha256,
             "p07_source_root": str(p07_source_root) if p07_source_root is not None else "",

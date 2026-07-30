@@ -8,6 +8,13 @@ P08 唯一接受 P07 默认和文档使用的精确 release 字面量 `GTDB Rele
 P06 来源及 SHA-256 写回候选记录。P07 status 仅以实际 FASTA shard stem 关联，且每个工具的
 `input_fasta` 必须解析为同一实际 shard，避免同 stem 的异路径复用。
 
+P06 candidate table 是 HMMER domain-row 账本，而 P08/P07 的生物学输入单位是 target sequence。
+因此 P08 只在已选择 tier 内按 `(family_category, proteome_shard, target_id)` 汇总同一 target 的多个
+domain 行：accession、target length、full-sequence score 与校准阈值必须一致；`High-confidence`
+优先于 `Review`，同 tier 选择最高 `hmm_coverage`，完全并列时按全行字典序决胜。P08 记录 domain 行数、
+观察到的 selected tiers、选中 domain index 与选择规则；它不合并不同 family 的命中，也不把多个 domain
+当成多个候选序列或多个表型证据。
+
 P07 r8 manifest 使用相对于其原始 r8 worktree 的路径。P08 因而提供显式
 `--p07-source-root`：它只对 P07 manifest/status 中的相对声明生效；绝对声明保持原义。候选
 manifest 同时记录原始声明、解析后的实体路径和 SHA-256，避免以新 P08 worktree 的当前目录

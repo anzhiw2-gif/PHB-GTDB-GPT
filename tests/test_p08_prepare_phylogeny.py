@@ -35,6 +35,7 @@ P06_FIELDS = (
     "calibrated_full_score_threshold",
     "calibrated_hmm_coverage_threshold",
     "tier",
+    "domain_index",
 )
 P07_SEQUENCE_FIELDS = (
     "p07_sequence_id",
@@ -321,6 +322,54 @@ class PrepareP08InputsTests(unittest.TestCase):
         self.assertTrue(all(row["p07_annotation_status"] == "completed" for row in candidates))
         self.assertTrue(all(row["verified_sha256"] == row["sequence_sha256"] for row in references))
         self.assertTrue(all(row["evidence_boundary"] == "sequence_and_annotation_evidence_only_not_phenotype_proof" for row in candidates))
+
+    def test_selected_multidomain_p06_rows_collapse_to_one_target_with_maximum_coverage(self) -> None:
+        rows = read_tsv(self.p06)
+        original = next(row for row in rows if row["target_id"] == "bac1")
+        original["domain_index"] = "1"
+        second_domain = dict(original)
+        second_domain["domain_index"] = "2"
+        second_domain["hmm_coverage"] = "0.6"
+        rows.append(second_domain)
+        write_tsv(self.p06, P06_FIELDS, rows)
+
+        outputs = self._prepare()
+
+        candidates = read_tsv(outputs["candidate_manifest"])
+        bac1 = next(row for row in candidates if row["target_id"] == "bac1")
+        self.assertEqual([row["target_id"] for row in candidates].count("bac1"), 1)
+        self.assertEqual(bac1["hmm_coverage"], "0.7")
+        self.assertEqual(bac1["p06_target_domain_row_count"], "2")
+        self.assertEqual(bac1["p06_selected_domain_index"], "1")
+        self.assertEqual(bac1["p06_domain_selection_rule"], "highest_tier_then_max_hmm_coverage_then_full_row_lexical")
+
+    def test_selected_multidomain_p06_rows_with_conflicting_target_level_values_fail_closed(self) -> None:
+        rows = read_tsv(self.p06)
+        conflicting = dict(next(row for row in rows if row["target_id"] == "bac1"))
+        conflicting["target_length"] = "9"
+        rows.append(conflicting)
+        write_tsv(self.p06, P06_FIELDS, rows)
+
+        with self.assertRaisesRegex(ValueError, "P06 target-level field mismatch"):
+            self._prepare()
+
+    def test_high_confidence_domain_outweighs_review_domain_for_one_target(self) -> None:
+        rows = read_tsv(self.p06)
+        high_confidence = next(row for row in rows if row["target_id"] == "bac1")
+        high_confidence["domain_index"] = "1"
+        review = dict(high_confidence)
+        review["domain_index"] = "2"
+        review["tier"] = "Review"
+        review["hmm_coverage"] = "0.9"
+        rows.append(review)
+        write_tsv(self.p06, P06_FIELDS, rows)
+
+        outputs = self._prepare(include_tiers=("High-confidence", "Review"))
+
+        bac1 = next(row for row in read_tsv(outputs["candidate_manifest"]) if row["target_id"] == "bac1")
+        self.assertEqual(bac1["tier"], "High-confidence")
+        self.assertEqual(bac1["hmm_coverage"], "0.7")
+        self.assertEqual(bac1["p06_observed_selected_tiers"], "High-confidence;Review")
 
     def test_review_candidate_is_excluded_by_default_and_included_only_when_requested(self) -> None:
         self._prepare()

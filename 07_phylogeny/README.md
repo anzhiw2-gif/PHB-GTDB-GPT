@@ -29,6 +29,12 @@ GTDB 映射、域架构和定位信息均是序列/注释证据；它们不单�
   scan-manifest SHA-256、模型分数/coverage 阈值、P07 实际 terminal status、状态表路径和
   InterProScan/SignalP6 输出路径。P07 `family_categories` 必须包含当前 P06 family，重复状态键
   或来源不完整都会失败关闭。
+- P06 candidate table 保留 HMMER 的 domain 行；P08 仅对被选择 tier 中同一
+  `(family_category, proteome_shard, target_id)` 的多 domain 行作 target-level 汇总。汇总前必须
+  核对 accession、target length、full-sequence score 与两个校准阈值完全一致；不一致即失败关闭。
+  同一 target 同时出现 `High-confidence` 与 `Review` 时前者优先；同 tier 内选择最高
+  `hmm_coverage` 的 domain，完全并列时以全行字典序决胜。候选 manifest 保留 domain 行数、观察到的
+  selected tiers、选中 domain index 与选择规则，不能把 domain 数解释为独立候选或表型证据。
 - P07 r8 manifest 中的 `fasta_shard`、`candidate_table_path`、`scan_manifest_path` 与 status
   `input_fasta`/`output_path` 可以是 r8 worktree 相对路径；必须用显式
   `--p07-source-root` 解析。P08 不改写这些原始声明，而是在 candidate manifest 中同时写入
