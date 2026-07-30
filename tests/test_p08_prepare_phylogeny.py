@@ -51,6 +51,8 @@ P07_SEQUENCE_FIELDS = (
     "gtdb_release",
 )
 P07_STATUS_FIELDS = ("tool", "fasta_shard", "input_fasta", "output_path", "status")
+P03_MANIFEST_FIELDS = ("accession", "faa_path", "status")
+P03_QC_FIELDS = ("accession", "faa_path", "status")
 P07_DEFAULT_GTDB_RELEASE = inspect.signature(prepare_p07_inputs).parameters["gtdb_release"].default
 
 
@@ -939,6 +941,51 @@ class PrepareP08InputsTests(unittest.TestCase):
         self.assertEqual(candidate["p07_resolved_scan_manifest_sha256"], self._sha256(source_root / relative_scan_manifest))
         self.assertIn(str(relative_archaeal), candidate["p07_annotation_declared_input_fastas"])
         self.assertIn(str((source_root / relative_archaeal).resolve()), candidate["p07_annotation_resolved_input_fastas"])
+
+    def test_relative_p03_faa_paths_require_an_explicit_p03_source_root(self) -> None:
+        """P03 relative FAA declarations must never be resolved against the P08 worktree."""
+        relative_faa = Path("03_gtdb_proteomes/faa/GB_GCF_000001.faa.gz")
+        manifest_rows = read_tsv(self.p03_prediction_manifest)
+        qc_rows = read_tsv(self.p03_prediction_qc)
+        for rows in (manifest_rows, qc_rows):
+            for row in rows:
+                if row["accession"] == "GCF_000001":
+                    row["faa_path"] = str(relative_faa)
+        write_tsv(self.p03_prediction_manifest, P03_MANIFEST_FIELDS, manifest_rows)
+        write_tsv(self.p03_prediction_qc, P03_QC_FIELDS, qc_rows)
+
+        with self.assertRaisesRegex(ValueError, "relative P03 faa_path requires an explicit p03_source_root"):
+            self._prepare()
+
+    def test_explicit_p03_source_root_resolves_relative_faa_paths_and_records_both_identities(self) -> None:
+        """P08 must retain P03 literals while validating their historical machine-local FAA source."""
+        source_root = self.root / "p03-old-source"
+        relative_faa = Path("03_gtdb_proteomes/faa/GB_GCF_000001.faa.gz")
+        resolved_faa = source_root / relative_faa
+        resolved_faa.parent.mkdir(parents=True)
+        resolved_faa.write_text(">GB_GCF_000001\nMPEPTIDE\n", encoding="utf-8")
+        manifest_rows = read_tsv(self.p03_prediction_manifest)
+        qc_rows = read_tsv(self.p03_prediction_qc)
+        for rows in (manifest_rows, qc_rows):
+            for row in rows:
+                if row["accession"] == "GCF_000001":
+                    row["faa_path"] = str(relative_faa)
+        write_tsv(self.p03_prediction_manifest, P03_MANIFEST_FIELDS, manifest_rows)
+        write_tsv(self.p03_prediction_qc, P03_QC_FIELDS, qc_rows)
+        p07_rows = read_tsv(self.p07_sequences)
+        for row in p07_rows:
+            if row["target_id"] in {"bac1", "review1"}:
+                row["source_proteome_path"] = str(resolved_faa)
+        write_tsv(self.p07_sequences, P07_SEQUENCE_FIELDS, p07_rows)
+
+        outputs = self._prepare(p03_source_root=source_root)
+
+        candidate = next(row for row in read_tsv(outputs["candidate_manifest"]) if row["target_id"] == "bac1")
+        self.assertEqual(candidate["p03_source_root"], str(source_root.resolve()))
+        self.assertEqual(candidate["p03_manifest_declared_faa_path"], str(relative_faa))
+        self.assertEqual(candidate["p03_manifest_resolved_faa_path"], str(resolved_faa.resolve()))
+        self.assertEqual(candidate["p03_qc_declared_faa_path"], str(relative_faa))
+        self.assertEqual(candidate["p03_qc_resolved_faa_path"], str(resolved_faa.resolve()))
 
     def test_p07_association_preserves_skipped_existing_status_and_output_path(self) -> None:
         rows = read_tsv(self.p07_status)

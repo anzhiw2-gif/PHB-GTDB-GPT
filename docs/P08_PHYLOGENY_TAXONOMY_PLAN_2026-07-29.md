@@ -61,7 +61,9 @@ P08 在每个已批准 P05 模型家族中，保留 GTDB R232 候选、accession
    两者都不替代 GTDB 候选的表型实验。
 4. P08 必须显式传入 GTDB release、P06 scan manifest、P03 prediction manifest/QC；每个候选
    逐行保留 FAA 源路径、upstream 路径与 SHA-256，以及 P06 模型分数、coverage、阈值和 tier。
-   P03 accession/FAA 路径与 P07 源路径不一致即关闭处理，绝不推断 release。
+   P03 `faa_path` 为相对路径时，必须显式提供 `--p03-source-root`；P08 保留 manifest/QC 的原始
+   字面量、分别记录解析后的路径和根目录，并要求两者都与 P07 源路径一致。P03 已声明的绝对路径不
+   改写。任一缺失、不一致或不可解析均关闭处理，绝不推断 release。
 5. P07 只接受已完成或 `skipped_existing` 的 InterProScan 与 SignalP6 状态，并核对
    P06/P07 target、family_categories、长度、FASTA 和 shard 关联；候选记录保留实际 terminal
    status、P07 状态表路径及每个工具的 output path。重复 `(tool, fasta_shard)` 状态键、状态缺失、失败
@@ -103,6 +105,9 @@ FastTree 用于大型家族的探索性概览，不能替代系统的统计推�
 - MAFFT manual：<https://mafft.cbrc.jp/alignment/software/manual/manual.html>；
 - IQ-TREE 2 command reference：<https://iqtree.github.io/doc/Command-Reference>；
 - FastTree 官方页：<http://www.microbesonline.org/fasttree/>。
+
+P03/P07 machine-local 路径解析仅使用 Python 标准库 `pathlib.Path`，未复制外部实现；其接口依据为
+Python 官方文档 <https://docs.python.org/3/library/pathlib.html>（2026-07-30 访问）。
 
 本地对上述网页的读取尝试在当前环境超时，因此本计划不把任何在线页面内容当作已验证
 的版本事实；T141 的实际工具版本和可用选项仍是 preflight 接受条件。

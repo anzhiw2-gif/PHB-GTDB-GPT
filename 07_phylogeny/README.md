@@ -41,7 +41,8 @@ GTDB 映射、域架构和定位信息均是序列/注释证据；它们不单�
   改变均继续失败关闭。`residue_sha256` 对照仍按残基核验，不使用该 EOL 适配器。
 - P07 r8 manifest 中的 `fasta_shard`、`candidate_table_path`、`scan_manifest_path` 与 status
   `input_fasta`/`output_path` 可以是 r8 worktree 相对路径；必须用显式
-  `--p07-source-root` 解析。P08 不改写这些原始声明，而是在 candidate manifest 中同时写入
+  `--p07-source-root` 解析。P03 manifest/QC 中的相对 `faa_path` 必须由显式
+  `--p03-source-root` 解析。P08 不改写这些原始声明，而是在 candidate manifest 中同时写入
   原始字面量、解析后路径和相应 SHA-256；未提供 source root 的相对路径将失败关闭。
 
 ## 生成物与执行边界
@@ -81,6 +82,7 @@ cd "$WT"
   --p06-scan-manifest "$R8/05_hmmer_scan/p06_hmmer_scan_manifest.tsv" \
   --p03-prediction-manifest "$OLD/03_gtdb_proteomes/manifests/p03_prediction_manifest.tsv" \
   --p03-prediction-qc "$OLD/03_gtdb_proteomes/qc/p03_prediction_qc.tsv" \
+  --p03-source-root "$OLD" \
   --p07-sequence-manifest "$R8/06_domain_annotation/manifests/p07_candidate_sequence_manifest.tsv" \
   --p07-status-table "$R8/06_domain_annotation/run_status/p07_domain_annotation_run_status.tsv" \
   --p07-source-root "$R8" \
