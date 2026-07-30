@@ -334,6 +334,23 @@ def _resolve_p07_declared_path(
     return (p07_source_root / declared).resolve(strict=False)
 
 
+def _resolve_p03_faa_path(
+    declared_path: str | Path,
+    p03_source_root: Path | None,
+) -> Path:
+    """Resolve one P03 FAA declaration without changing its recorded literal."""
+    declared = Path(declared_path)
+    if not str(declared).strip():
+        raise ValueError("P03 faa_path is empty")
+    if declared.is_absolute() or str(declared_path).startswith("/"):
+        return declared.resolve(strict=False)
+    if p03_source_root is None:
+        raise ValueError(
+            "relative P03 faa_path requires an explicit p03_source_root"
+        )
+    return (p03_source_root / declared).resolve(strict=False)
+
+
 def _load_taxonomy_records(
     paths: Sequence[Path],
     source_roles: Sequence[str] | None,
@@ -540,6 +557,7 @@ def prepare_p08_inputs(
     p06_scan_manifest: Path | None = None,
     p03_prediction_manifest: Path | None = None,
     p03_prediction_qc: Path | None = None,
+    p03_source_root: Path | None = None,
     p07_source_root: Path | None = None,
 ) -> dict[str, Path]:
     """Validate and write deterministic P08 manifests from existing P05--P07 data."""
@@ -566,6 +584,10 @@ def prepare_p08_inputs(
         p07_source_root = Path(p07_source_root).resolve(strict=False)
         if not p07_source_root.is_dir():
             _fail(outdir, blocks, "p07_source_root must be an existing directory", source_path=str(p07_source_root))
+    if p03_source_root is not None:
+        p03_source_root = Path(p03_source_root).resolve(strict=False)
+        if not p03_source_root.is_dir():
+            _fail(outdir, blocks, "p03_source_root must be an existing directory", source_path=str(p03_source_root))
     try:
         registry_rows = _read_tsv(Path(p05_model_registry), REGISTRY_FIELDS, "P05 registry")
         seed_rows = _read_tsv(Path(p05_seed_table), SEED_FIELDS, "P05 seed table")
@@ -893,8 +915,16 @@ def prepare_p08_inputs(
         p03_qc = p03_qc_by_accession.get(assembly_accession)
         if p03_manifest is None or p03_qc is None:
             _fail(outdir, blocks, "P03 provenance absence blocks processing", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=p07["source_proteome_path"], notes=f"assembly_accession={assembly_accession}; manifest={'present' if p03_manifest else 'missing'}; qc={'present' if p03_qc else 'missing'}")
-        if Path(p03_manifest["faa_path"]) != Path(p07["source_proteome_path"]) or Path(p03_qc["faa_path"]) != Path(p07["source_proteome_path"]):
-            _fail(outdir, blocks, "P03 FAA source path mismatch", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=p07["source_proteome_path"], notes=f"p03_manifest_faa_path={p03_manifest['faa_path']}; p03_qc_faa_path={p03_qc['faa_path']}")
+        try:
+            resolved_p03_manifest_faa = _resolve_p03_faa_path(p03_manifest["faa_path"], p03_source_root)
+            resolved_p03_qc_faa = _resolve_p03_faa_path(p03_qc["faa_path"], p03_source_root)
+        except ValueError as error:
+            _fail(outdir, blocks, str(error), family_category=family, proteome_shard=key[0], target_id=key[1], source_path=p07["source_proteome_path"])
+        if (
+            not _same_normalized_path(resolved_p03_manifest_faa, p07["source_proteome_path"])
+            or not _same_normalized_path(resolved_p03_qc_faa, p07["source_proteome_path"])
+        ):
+            _fail(outdir, blocks, "P03 FAA source path mismatch", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=p07["source_proteome_path"], notes=f"p03_manifest_declared_faa_path={p03_manifest['faa_path']}; p03_manifest_resolved_faa_path={resolved_p03_manifest_faa}; p03_qc_declared_faa_path={p03_qc['faa_path']}; p03_qc_resolved_faa_path={resolved_p03_qc_faa}")
         taxonomy_record = taxonomy.get(assembly_accession)
         if not taxonomy_record:
             _fail(outdir, blocks, "taxonomy absence blocks processing", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=p07["source_proteome_path"])
@@ -912,7 +942,10 @@ def prepare_p08_inputs(
             "p06_scan_manifest_path": str(expected_scan_manifest), "p06_scan_manifest_sha256": expected_scan_manifest_sha256,
             "p07_declared_scan_manifest_path": p07["scan_manifest_path"], "p07_resolved_scan_manifest_path": p07["_resolved_scan_manifest_path"], "p07_declared_scan_manifest_sha256": _sha256(Path(p07["_resolved_scan_manifest_path"])), "p07_resolved_scan_manifest_sha256": _sha256(Path(p07["_resolved_scan_manifest_path"])),
             "p03_prediction_manifest_path": str(provenance_paths["p03_prediction_manifest"]), "p03_prediction_manifest_sha256": _sha256(provenance_paths["p03_prediction_manifest"]),
-            "p03_prediction_qc_path": str(provenance_paths["p03_prediction_qc"]), "p03_prediction_qc_sha256": _sha256(provenance_paths["p03_prediction_qc"]), "p03_faa_path": p03_manifest["faa_path"],
+            "p03_prediction_qc_path": str(provenance_paths["p03_prediction_qc"]), "p03_prediction_qc_sha256": _sha256(provenance_paths["p03_prediction_qc"]),
+            "p03_source_root": str(p03_source_root) if p03_source_root is not None else "", "p03_faa_path": p03_manifest["faa_path"],
+            "p03_manifest_declared_faa_path": p03_manifest["faa_path"], "p03_manifest_resolved_faa_path": str(resolved_p03_manifest_faa),
+            "p03_qc_declared_faa_path": p03_qc["faa_path"], "p03_qc_resolved_faa_path": str(resolved_p03_qc_faa),
             "p07_sequence_id": p07["p07_sequence_id"], "source_proteome_path": p07["source_proteome_path"], "fasta_shard": p07["fasta_shard"], "p07_declared_fasta_shard": p07["fasta_shard"], "p07_resolved_fasta_shard_path": str(fasta_path), "p07_resolved_fasta_shard_sha256": fasta_sha256,
             "p07_annotation_status": ";".join(sorted({required_statuses[tool]["status"] for tool in REQUIRED_P07_TOOLS})),
             "p07_annotation_status_by_tool": ";".join(f"{tool}={required_statuses[tool]['status']}" for tool in REQUIRED_P07_TOOLS),
@@ -1072,6 +1105,13 @@ def prepare_p08_inputs(
             "input_sha256": "not_a_file_root_declaration",
             "input_usage": "relative_P07_path_resolution_root",
         })
+    if p03_source_root is not None:
+        provenance_rows.append({
+            "input_role": "p03_source_root",
+            "input_path": str(p03_source_root),
+            "input_sha256": "not_a_file_root_declaration",
+            "input_usage": "relative_P03_faa_path_resolution_root",
+        })
     provenance_rows.append({
         "input_role": "gtdb_release",
         "input_path": gtdb_release.strip(),
@@ -1100,6 +1140,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--p06-scan-manifest", type=Path, required=True)
     parser.add_argument("--p03-prediction-manifest", type=Path, required=True)
     parser.add_argument("--p03-prediction-qc", type=Path, required=True)
+    parser.add_argument("--p03-source-root", type=Path, help="Required to resolve relative P03 faa_path declarations; recorded without rewriting the declarations.")
     parser.add_argument("--p07-sequence-manifest", type=Path, required=True)
     parser.add_argument("--p07-status-table", type=Path, required=True)
     parser.add_argument("--p07-source-root", type=Path, help="Required to resolve relative paths declared by the P07 manifests; recorded without rewriting the declarations.")
@@ -1131,6 +1172,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             p06_scan_manifest=args.p06_scan_manifest,
             p03_prediction_manifest=args.p03_prediction_manifest,
             p03_prediction_qc=args.p03_prediction_qc,
+            p03_source_root=args.p03_source_root,
             p07_sequence_table=args.p07_sequence_manifest,
             p07_status_table=args.p07_status_table,
             p07_source_root=args.p07_source_root,
