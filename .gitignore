@@ -64,6 +64,7 @@
 08_reports/manuscript_ready/
 
 # Workflow runtime and local development artifacts.
+.worktrees/
 work/
 .nextflow/
 .nextflow.log*
