@@ -15,6 +15,13 @@ domain 行：accession、target length、full-sequence score 与校准阈值必�
 观察到的 selected tiers、选中 domain index 与选择规则；它不合并不同 family 的命中，也不把多个 domain
 当成多个候选序列或多个表型证据。
 
+P05 seed/control 的 registry `sequence_sha256` 保留原始获取文件的声明值。P08 对 `file_sha256` 先要求
+实际 raw-file SHA 精确相等；仅在不相等时，才从同一实际字节串生成 LF 与 CRLF 两个规范表示，且 registry
+声明值必须精确匹配其中之一。它在 reference/family-input manifest 中同时保留声明 SHA、实际 raw-file SHA、
+canonical-LF SHA、验证模式和声明匹配表示，因而 Git 工作树的 CRLF/LF 转换可审计但不被静默掩盖。序列残基、
+FASTA header、其他空白或任意非换行字节变化均不满足该规则而失败关闭；`residue_sha256` 对照仍只按规范
+残基核验。此适配器解决文件表示层的一致性，不增加或改变任何 PHB/PHA 降解表型结论。
+
 P07 r8 manifest 使用相对于其原始 r8 worktree 的路径。P08 因而提供显式
 `--p07-source-root`：它只对 P07 manifest/status 中的相对声明生效；绝对声明保持原义。候选
 manifest 同时记录原始声明、解析后的实体路径和 SHA-256，避免以新 P08 worktree 的当前目录

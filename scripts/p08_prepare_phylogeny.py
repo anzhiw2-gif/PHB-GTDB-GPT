@@ -59,6 +59,8 @@ CORE_CLOSE_CONTROL_FIELDS = ("source_accession", "sequence_path", "notes")
 FAMILY_INPUT_FIELDS = (
     "family_category", "record_kind", "record_identity", "input_fasta_path", "input_sha256",
     "source_path", "source_sha256", "source_checksum_kind", "model_sha256", "source_model_sha256",
+    "source_declared_sha256", "source_observed_file_sha256", "source_canonical_lf_sha256",
+    "source_checksum_verification_mode", "source_checksum_declared_representation",
     "model_provenance", "model_provenance_source_path", "p06_proteome_shard", "p06_target_id",
     "p07_sequence_id", "source_accession_or_assembly", "evidence_or_control_role",
     "is_gtdb_candidate", "evidence_boundary",
@@ -265,6 +267,40 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _verify_file_sha256_with_eol_adapter(path: Path, declared_sha256: str) -> dict[str, str]:
+    """Verify a file SHA-256, allowing only LF/CRLF working-tree conversion."""
+    raw = path.read_bytes()
+    observed_file_sha256 = _sha256_bytes(raw)
+    canonical_lf_sha256 = _sha256_bytes(raw.replace(b"\r\n", b"\n"))
+    if observed_file_sha256 == declared_sha256:
+        return {
+            "observed_file_sha256": observed_file_sha256,
+            "canonical_lf_sha256": canonical_lf_sha256,
+            "checksum_verification_mode": "exact_file_sha256",
+            "checksum_declared_representation": "raw",
+        }
+    crlf_sha256 = _sha256_bytes(raw.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+    if canonical_lf_sha256 == declared_sha256:
+        representation = "lf"
+    elif crlf_sha256 == declared_sha256:
+        representation = "crlf"
+    else:
+        raise ValueError(
+            f"declared_sha256={declared_sha256}; observed_file_sha256={observed_file_sha256}; "
+            f"canonical_lf_sha256={canonical_lf_sha256}; crlf_sha256={crlf_sha256}"
+        )
+    return {
+        "observed_file_sha256": observed_file_sha256,
+        "canonical_lf_sha256": canonical_lf_sha256,
+        "checksum_verification_mode": "eol_normalized_file_sha256",
+        "checksum_declared_representation": representation,
+    }
 
 
 def _normalized_path(path: str | Path) -> str:
@@ -676,7 +712,8 @@ def prepare_p08_inputs(
             if source_model is None or row["model_sha256"] != source_model["model_sha256"]:
                 _fail(outdir, blocks, "P05 reference model SHA-256 mismatch", family_category=row["family_category"], source_path=str(path), notes=f"{identifier_field}={row[identifier_field]}; declared_model_sha256={row['model_sha256']}; registry_model_sha256={(source_model or {}).get('model_sha256', 'missing')}")
             try:
-                verified_file_sha256 = _sha256(path)
+                raw_file_sha256 = _sha256(path)
+                canonical_lf_sha256 = _sha256_bytes(path.read_bytes().replace(b"\r\n", b"\n"))
             except OSError as error:
                 _fail(outdir, blocks, f"sequence file unreadable: {path}", family_category=row["family_category"], source_path=str(path), notes=str(error))
             try:
@@ -687,11 +724,24 @@ def prepare_p08_inputs(
                 _fail(outdir, blocks, "reference FASTA malformed", family_category=row["family_category"], source_path=str(path), notes=f"{identifier_field}={row[identifier_field]}; expected exactly one FASTA record")
             sequence = next(iter(fasta_records.values()))
             checksum_kind = row.get("source_checksum_kind", "file_sha256")
-            verified = _residue_sha256(sequence) if checksum_kind == "residue_sha256" else verified_file_sha256
-            if verified != row["sequence_sha256"]:
-                _fail(outdir, blocks, "SHA-256 mismatch", family_category=row["family_category"], source_path=str(path), notes=f"{identifier_field}={row[identifier_field]}; checksum_kind={checksum_kind}")
+            if checksum_kind == "residue_sha256":
+                verified = _residue_sha256(sequence)
+                checksum_audit = {
+                    "observed_file_sha256": raw_file_sha256,
+                    "canonical_lf_sha256": canonical_lf_sha256,
+                    "checksum_verification_mode": "residue_sha256",
+                    "checksum_declared_representation": "residue",
+                }
+                if verified != row["sequence_sha256"]:
+                    _fail(outdir, blocks, "SHA-256 mismatch", family_category=row["family_category"], source_path=str(path), notes=f"{identifier_field}={row[identifier_field]}; checksum_kind={checksum_kind}; declared_sha256={row['sequence_sha256']}; observed_file_sha256={raw_file_sha256}; canonical_lf_sha256={canonical_lf_sha256}; observed_residue_sha256={verified}")
+            else:
+                try:
+                    checksum_audit = _verify_file_sha256_with_eol_adapter(path, row["sequence_sha256"])
+                except (OSError, ValueError) as error:
+                    _fail(outdir, blocks, "SHA-256 mismatch", family_category=row["family_category"], source_path=str(path), notes=f"{identifier_field}={row[identifier_field]}; checksum_kind={checksum_kind}; {error}")
+                verified = checksum_audit["observed_file_sha256"]
             reference = {
-                "family_category": row["family_category"], "record_kind": record_kind, "record_id": row[identifier_field], "source_accession": row.get("source_accession", ""), "control_role": row.get("control_role", ""), "sequence_path": str(path), "sequence_sha256": row["sequence_sha256"], "verified_sha256": verified, "source_checksum_kind": checksum_kind, "model_sha256": row["model_sha256"], "source_model_sha256": row["model_sha256"], "model_provenance": "direct_p05_registry", "model_provenance_source_path": str(provenance_table), "evidence": row.get("evidence", ""), "notes": row.get("notes", ""), "sequence": sequence, "source_accession_or_assembly": row.get("source_accession", "") or row[identifier_field],
+                "family_category": row["family_category"], "record_kind": record_kind, "record_id": row[identifier_field], "source_accession": row.get("source_accession", ""), "control_role": row.get("control_role", ""), "sequence_path": str(path), "sequence_sha256": row["sequence_sha256"], "verified_sha256": verified, "observed_file_sha256": checksum_audit["observed_file_sha256"], "canonical_lf_sha256": checksum_audit["canonical_lf_sha256"], "checksum_verification_mode": checksum_audit["checksum_verification_mode"], "checksum_declared_representation": checksum_audit["checksum_declared_representation"], "source_checksum_kind": checksum_kind, "model_sha256": row["model_sha256"], "source_model_sha256": row["model_sha256"], "model_provenance": "direct_p05_registry", "model_provenance_source_path": str(provenance_table), "evidence": row.get("evidence", ""), "notes": row.get("notes", ""), "sequence": sequence, "source_accession_or_assembly": row.get("source_accession", "") or row[identifier_field],
             }
             references_by_family[row["family_category"]].append(reference)
             if record_kind == "seed":
@@ -770,8 +820,10 @@ def prepare_p08_inputs(
             expected_sha256 = match.group(1)
             if _residue_sha256(sequence) != expected_sha256:
                 _fail(outdir, blocks, "SHA-256 mismatch", family_category=CORE_FAMILY, source_path=str(path), notes=f"source_accession={row['source_accession']}; checksum_kind=residue_sha256")
+            raw_file_sha256 = _sha256(path)
+            canonical_lf_sha256 = _sha256_bytes(path.read_bytes().replace(b"\r\n", b"\n"))
             references_by_family[CORE_FAMILY].append({
-                "family_category": CORE_FAMILY, "record_kind": "control", "record_id": f"{CORE_FAMILY}|close_non_target_hydrolase|{row['family_category']}|{row['source_accession']}", "source_accession": row["source_accession"], "control_role": "close_non_target_hydrolase", "sequence_path": str(path), "sequence_sha256": expected_sha256, "verified_sha256": expected_sha256, "source_checksum_kind": "residue_sha256", "model_sha256": core_model["model_sha256"], "source_model_sha256": "", "model_provenance": "derived_core_close_control", "model_provenance_source_path": str(close_controls_path), "evidence": row.get("evidence_level", ""), "notes": row["notes"], "sequence": sequence, "source_accession_or_assembly": row["source_accession"],
+                "family_category": CORE_FAMILY, "record_kind": "control", "record_id": f"{CORE_FAMILY}|close_non_target_hydrolase|{row['family_category']}|{row['source_accession']}", "source_accession": row["source_accession"], "control_role": "close_non_target_hydrolase", "sequence_path": str(path), "sequence_sha256": expected_sha256, "verified_sha256": expected_sha256, "observed_file_sha256": raw_file_sha256, "canonical_lf_sha256": canonical_lf_sha256, "checksum_verification_mode": "residue_sha256", "checksum_declared_representation": "residue", "source_checksum_kind": "residue_sha256", "model_sha256": core_model["model_sha256"], "source_model_sha256": "", "model_provenance": "derived_core_close_control", "model_provenance_source_path": str(close_controls_path), "evidence": row.get("evidence_level", ""), "notes": row["notes"], "sequence": sequence, "source_accession_or_assembly": row["source_accession"],
             })
         core_controls = [row for row in references_by_family[CORE_FAMILY] if row["record_kind"] == "control"]
         if len(core_controls) != CORE_HARD_PANEL_COUNT:
@@ -919,6 +971,9 @@ def prepare_p08_inputs(
                 "family_category": family, "record_kind": reference["record_kind"], "record_id": reference["record_id"],
                 "sequence": reference["sequence"], "source_path": reference["sequence_path"],
                 "source_sha256": reference["verified_sha256"], "source_checksum_kind": reference["source_checksum_kind"],
+                "source_declared_sha256": reference["sequence_sha256"], "source_observed_file_sha256": reference["observed_file_sha256"],
+                "source_canonical_lf_sha256": reference["canonical_lf_sha256"], "source_checksum_verification_mode": reference["checksum_verification_mode"],
+                "source_checksum_declared_representation": reference["checksum_declared_representation"],
                 "model_sha256": reference["model_sha256"], "source_model_sha256": reference["source_model_sha256"],
                 "model_provenance": reference["model_provenance"], "model_provenance_source_path": reference["model_provenance_source_path"],
                 "p06_proteome_shard": "", "p06_target_id": "", "p07_sequence_id": "",
@@ -935,6 +990,9 @@ def prepare_p08_inputs(
                 "family_category": family, "record_kind": input_row["record_kind"], "record_identity": record_identity,
                 "input_fasta_path": str(fasta_path), "input_sha256": input_sha256, "source_path": input_row["source_path"],
                 "source_sha256": input_row["source_sha256"], "source_checksum_kind": input_row["source_checksum_kind"],
+                "source_declared_sha256": input_row.get("source_declared_sha256", ""), "source_observed_file_sha256": input_row.get("source_observed_file_sha256", ""),
+                "source_canonical_lf_sha256": input_row.get("source_canonical_lf_sha256", ""), "source_checksum_verification_mode": input_row.get("source_checksum_verification_mode", ""),
+                "source_checksum_declared_representation": input_row.get("source_checksum_declared_representation", ""),
                 "model_sha256": input_row["model_sha256"], "source_model_sha256": input_row["source_model_sha256"],
                 "model_provenance": input_row["model_provenance"], "model_provenance_source_path": input_row["model_provenance_source_path"],
                 "p06_proteome_shard": input_row["p06_proteome_shard"], "p06_target_id": input_row["p06_target_id"],
@@ -979,7 +1037,7 @@ def prepare_p08_inputs(
         })
     _write_tsv(outputs["candidate_manifest"], tuple(candidate_rows[0]), candidate_rows)
     _write_tsv(outputs["taxonomy_join"], TAXONOMY_JOIN_FIELDS, taxonomy_rows)
-    _write_tsv(outputs["family_reference_manifest"], ("family_category", "record_kind", "record_id", "source_accession", "control_role", "sequence_path", "sequence_sha256", "verified_sha256", "evidence", "notes"), reference_rows)
+    _write_tsv(outputs["family_reference_manifest"], ("family_category", "record_kind", "record_id", "source_accession", "control_role", "sequence_path", "sequence_sha256", "verified_sha256", "observed_file_sha256", "canonical_lf_sha256", "checksum_verification_mode", "checksum_declared_representation", "evidence", "notes"), reference_rows)
     _write_tsv(outputs["preparation_summary"], SUMMARY_FIELDS, summary_rows)
     _write_tsv(outputs["family_input_manifest"], FAMILY_INPUT_FIELDS, sorted(family_input_rows, key=lambda row: (row["family_category"], kind_order[row["record_kind"]], row["record_identity"])))
     _write_tsv(outputs["phylogeny_command_manifest"], COMMAND_FIELDS, command_rows)

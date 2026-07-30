@@ -625,6 +625,48 @@ class PrepareP08InputsTests(unittest.TestCase):
             self._prepare()
         self.assertTrue((self.outdir / "review" / "p08_blocked_records.tsv").exists())
 
+    def test_crlf_declared_seed_hash_accepts_lf_worktree_file_and_records_audit_fields(self) -> None:
+        rows = read_tsv(self.seeds)
+        seed_row = next(row for row in rows if row["family_category"] == "archaeal_patatin_like_pha_dep")
+        seed_path = Path(seed_row["sequence_path"])
+        raw = seed_path.read_bytes()
+        lf = raw.replace(b"\r\n", b"\n")
+        seed_path.write_bytes(lf)
+        declared_crlf_sha256 = hashlib.sha256(lf.replace(b"\n", b"\r\n")).hexdigest()
+        seed_row["sequence_sha256"] = declared_crlf_sha256
+        write_tsv(self.seeds, tuple(rows[0].keys()), rows)
+
+        references = read_tsv(self._prepare()["family_reference_manifest"])
+
+        reference = next(row for row in references if row["record_id"] == seed_row["seed_id"])
+        self.assertEqual(reference["sequence_sha256"], declared_crlf_sha256)
+        self.assertEqual(reference["observed_file_sha256"], hashlib.sha256(lf).hexdigest())
+        self.assertEqual(reference["canonical_lf_sha256"], hashlib.sha256(lf).hexdigest())
+        self.assertEqual(reference["checksum_verification_mode"], "eol_normalized_file_sha256")
+        self.assertEqual(reference["checksum_declared_representation"], "crlf")
+
+    def test_non_eol_seed_mutation_does_not_match_declared_crlf_hash_and_records_identities(self) -> None:
+        rows = read_tsv(self.seeds)
+        seed_row = next(row for row in rows if row["family_category"] == "archaeal_patatin_like_pha_dep")
+        seed_path = Path(seed_row["sequence_path"])
+        raw = seed_path.read_bytes()
+        lf = raw.replace(b"\r\n", b"\n")
+        declared_crlf_sha256 = hashlib.sha256(lf.replace(b"\n", b"\r\n")).hexdigest()
+        mutated = bytearray(lf)
+        mutated[-2] = ord("A") if mutated[-2] != ord("A") else ord("C")
+        seed_path.write_bytes(bytes(mutated))
+        seed_row["sequence_sha256"] = declared_crlf_sha256
+        write_tsv(self.seeds, tuple(rows[0].keys()), rows)
+
+        with self.assertRaisesRegex(ValueError, "SHA-256 mismatch"):
+            self._prepare()
+
+        blocks = read_tsv(self.outdir / "review" / "p08_blocked_records.tsv")
+        block = next(row for row in blocks if row["reason"] == "SHA-256 mismatch")
+        self.assertIn(f"declared_sha256={declared_crlf_sha256}", block["notes"])
+        self.assertIn("observed_file_sha256=", block["notes"])
+        self.assertIn("canonical_lf_sha256=", block["notes"])
+
     def test_seed_model_hash_mismatch_blocks_before_outputs_are_written(self) -> None:
         rows = read_tsv(self.seeds)
         row = next(row for row in rows if row["family_category"] == "archaeal_patatin_like_pha_dep")

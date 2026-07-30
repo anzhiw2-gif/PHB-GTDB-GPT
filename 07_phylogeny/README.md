@@ -35,6 +35,10 @@ GTDB 映射、域架构和定位信息均是序列/注释证据；它们不单�
   同一 target 同时出现 `High-confidence` 与 `Review` 时前者优先；同 tier 内选择最高
   `hmm_coverage` 的 domain，完全并列时以全行字典序决胜。候选 manifest 保留 domain 行数、观察到的
   selected tiers、选中 domain index 与选择规则，不能把 domain 数解释为独立候选或表型证据。
+- P05 seed/control 的 `file_sha256` 先按原始字节严格核验；仅当 registry 声明 SHA 恰好等于同一
+  实际文件的 LF 或 CRLF 规范表示时，才接受 Git 工作树换行转换。P08 同时记录声明 SHA、实际 raw-file
+  SHA、canonical-LF SHA、验证模式与声明匹配表示；氨基酸残基、FASTA header、空白或任何非换行字节
+  改变均继续失败关闭。`residue_sha256` 对照仍按残基核验，不使用该 EOL 适配器。
 - P07 r8 manifest 中的 `fasta_shard`、`candidate_table_path`、`scan_manifest_path` 与 status
   `input_fasta`/`output_path` 可以是 r8 worktree 相对路径；必须用显式
   `--p07-source-root` 解析。P08 不改写这些原始声明，而是在 candidate manifest 中同时写入
