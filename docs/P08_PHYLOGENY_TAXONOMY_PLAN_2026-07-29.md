@@ -8,6 +8,11 @@ P08 唯一接受 P07 默认和文档使用的精确 release 字面量 `GTDB Rele
 P06 来源及 SHA-256 写回候选记录。P07 status 仅以实际 FASTA shard stem 关联，且每个工具的
 `input_fasta` 必须解析为同一实际 shard，避免同 stem 的异路径复用。
 
+P07 r8 manifest 使用相对于其原始 r8 worktree 的路径。P08 因而提供显式
+`--p07-source-root`：它只对 P07 manifest/status 中的相对声明生效；绝对声明保持原义。候选
+manifest 同时记录原始声明、解析后的实体路径和 SHA-256，避免以新 P08 worktree 的当前目录
+错误解释旧 P07 产物。任一相对声明未给 source root、解析后不等于显式 P06 输入或实体不可读，均失败关闭。
+
 `extracellular_pha_depolymerase_core` 禁止普通 P05 seed/control 表中的 direct core 行。每次
 都由 tracked authority 重新构造并验证 17 个 core seeds、15 个活跃非胞外 cross-family
 challenges 和 5 个 accessioned close controls（共 20 个 hard-panel records）。这仍是序列与

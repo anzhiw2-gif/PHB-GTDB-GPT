@@ -274,6 +274,25 @@ def _same_normalized_path(left: str | Path, right: str | Path) -> bool:
     return _normalized_path(left) == _normalized_path(right)
 
 
+def _resolve_p07_declared_path(
+    declared_path: str | Path,
+    p07_source_root: Path | None,
+    *,
+    field_name: str,
+) -> Path:
+    """Resolve one P07 declaration without changing its recorded literal."""
+    declared = Path(declared_path)
+    if not str(declared).strip():
+        raise ValueError(f"P07 {field_name} is empty")
+    if declared.is_absolute():
+        return declared.resolve(strict=False)
+    if p07_source_root is None:
+        raise ValueError(
+            f"relative P07 {field_name} requires an explicit p07_source_root"
+        )
+    return (p07_source_root / declared).resolve(strict=False)
+
+
 def _load_taxonomy_records(
     paths: Sequence[Path],
     source_roles: Sequence[str] | None,
@@ -422,6 +441,7 @@ def prepare_p08_inputs(
     p06_scan_manifest: Path | None = None,
     p03_prediction_manifest: Path | None = None,
     p03_prediction_qc: Path | None = None,
+    p07_source_root: Path | None = None,
 ) -> dict[str, Path]:
     """Validate and write deterministic P08 manifests from existing P05--P07 data."""
     outdir = Path(outdir)
@@ -443,6 +463,10 @@ def prepare_p08_inputs(
     for role, path in provenance_paths.items():
         if not path.is_file() or path.stat().st_size == 0:
             _fail(outdir, blocks, f"P08 provenance chain requires an existing nonempty {role}", source_path=str(path))
+    if p07_source_root is not None:
+        p07_source_root = Path(p07_source_root).resolve(strict=False)
+        if not p07_source_root.is_dir():
+            _fail(outdir, blocks, "p07_source_root must be an existing directory", source_path=str(p07_source_root))
     try:
         registry_rows = _read_tsv(Path(p05_model_registry), REGISTRY_FIELDS, "P05 registry")
         seed_rows = _read_tsv(Path(p05_seed_table), SEED_FIELDS, "P05 seed table")
@@ -517,7 +541,19 @@ def prepare_p08_inputs(
                 source_path=str(p07_sequence_table),
                 notes=f"p07_gtdb_release={row['gtdb_release']}; explicit_gtdb_release={expected_gtdb_release}",
             )
-        if not _same_normalized_path(row["candidate_table_path"], expected_candidate_table):
+        try:
+            resolved_candidate_table = _resolve_p07_declared_path(
+                row["candidate_table_path"], p07_source_root, field_name="candidate_table_path"
+            )
+            resolved_scan_manifest = _resolve_p07_declared_path(
+                row["scan_manifest_path"], p07_source_root, field_name="scan_manifest_path"
+            )
+            resolved_fasta_shard = _resolve_p07_declared_path(
+                row["fasta_shard"], p07_source_root, field_name="fasta_shard"
+            )
+        except ValueError as error:
+            _fail(outdir, blocks, str(error), proteome_shard=key[0], target_id=key[1], source_path=str(p07_sequence_table))
+        if not _same_normalized_path(resolved_candidate_table, expected_candidate_table):
             _fail(
                 outdir,
                 blocks,
@@ -525,9 +561,9 @@ def prepare_p08_inputs(
                 proteome_shard=key[0],
                 target_id=key[1],
                 source_path=str(p07_sequence_table),
-                notes=f"p07_candidate_table_path={row['candidate_table_path']}; p08_candidate_table_path={expected_candidate_table}",
+                notes=f"p07_declared_candidate_table_path={row['candidate_table_path']}; p07_resolved_candidate_table_path={resolved_candidate_table}; p08_candidate_table_path={expected_candidate_table}",
             )
-        if not _same_normalized_path(row["scan_manifest_path"], expected_scan_manifest):
+        if not _same_normalized_path(resolved_scan_manifest, expected_scan_manifest):
             _fail(
                 outdir,
                 blocks,
@@ -535,13 +571,18 @@ def prepare_p08_inputs(
                 proteome_shard=key[0],
                 target_id=key[1],
                 source_path=str(p07_sequence_table),
-                notes=f"p07_scan_manifest_path={row['scan_manifest_path']}; p08_scan_manifest_path={expected_scan_manifest}",
+                notes=f"p07_declared_scan_manifest_path={row['scan_manifest_path']}; p07_resolved_scan_manifest_path={resolved_scan_manifest}; p08_scan_manifest_path={expected_scan_manifest}",
             )
         if key in p07_by_key:
             _fail(outdir, blocks, "duplicate P07 join key", proteome_shard=key[0], target_id=key[1], source_path=str(p07_sequence_table), notes=f"p07_sequence_id={row['p07_sequence_id']}")
         if row["p07_sequence_id"] in p07_ids:
             _fail(outdir, blocks, "duplicate P07 sequence ID", proteome_shard=key[0], target_id=key[1], source_path=str(p07_sequence_table), notes=f"p07_sequence_id={row['p07_sequence_id']}")
-        p07_by_key[key] = row
+        p07_by_key[key] = {
+            **row,
+            "_resolved_candidate_table_path": str(resolved_candidate_table),
+            "_resolved_scan_manifest_path": str(resolved_scan_manifest),
+            "_resolved_fasta_shard_path": str(resolved_fasta_shard),
+        }
         p07_ids.add(row["p07_sequence_id"])
     statuses: dict[tuple[str, str], dict[str, str]] = {}
     for row in status_rows:
@@ -697,7 +738,7 @@ def prepare_p08_inputs(
         expected_length = int(p06["target_length"])
         if len({expected_length, int(p07["target_length_from_p06"]), int(p07["sequence_length"])}) != 1:
             _fail(outdir, blocks, "P06/P07 sequence length mismatch", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=str(p07_sequence_table))
-        fasta_path = Path(p07["fasta_shard"])
+        fasta_path = Path(p07["_resolved_fasta_shard_path"])
         cached = candidate_fasta_cache.get(str(fasta_path))
         if cached is None:
             try:
@@ -721,12 +762,17 @@ def prepare_p08_inputs(
         for tool, status_row in required_statuses.items():
             assert status_row is not None
             try:
-                input_matches = _same_normalized_path(status_row["input_fasta"], fasta_path)
-                _normalized_path(status_row["output_path"])
+                resolved_input_fasta = _resolve_p07_declared_path(
+                    status_row["input_fasta"], p07_source_root, field_name="status input_fasta"
+                )
+                resolved_output_path = _resolve_p07_declared_path(
+                    status_row["output_path"], p07_source_root, field_name="status output_path"
+                )
+                input_matches = _same_normalized_path(resolved_input_fasta, fasta_path)
             except (OSError, ValueError) as error:
                 _fail(outdir, blocks, "P07 status path is not parseable", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=str(p07_status_table), notes=f"tool={tool}; {error}")
             if not input_matches:
-                _fail(outdir, blocks, "P07 status input FASTA path mismatch", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=str(p07_status_table), notes=f"tool={tool}; status_input_fasta={status_row['input_fasta']}; p07_fasta_shard={p07['fasta_shard']}")
+                _fail(outdir, blocks, "P07 status input FASTA path mismatch", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=str(p07_status_table), notes=f"tool={tool}; status_declared_input_fasta={status_row['input_fasta']}; status_resolved_input_fasta={resolved_input_fasta}; p07_declared_fasta_shard={p07['fasta_shard']}; p07_resolved_fasta_shard={fasta_path}")
         assembly_accession = _assembly_accession(p07["source_proteome_path"])
         p03_manifest = p03_manifest_by_accession.get(assembly_accession)
         p03_qc = p03_qc_by_accession.get(assembly_accession)
@@ -742,17 +788,22 @@ def prepare_p08_inputs(
             **{field: p06[field] for field in P06_FIELDS},
             "gtdb_release": expected_gtdb_release, "p07_declared_gtdb_release": p07["gtdb_release"],
             "p06_candidate_table_path": str(expected_candidate_table), "p06_candidate_table_sha256": expected_candidate_table_sha256,
-            "p07_declared_candidate_table_path": p07["candidate_table_path"], "p07_declared_candidate_table_sha256": _sha256(Path(p07["candidate_table_path"])),
+            "p07_source_root": str(p07_source_root) if p07_source_root is not None else "",
+            "p07_declared_candidate_table_path": p07["candidate_table_path"], "p07_resolved_candidate_table_path": p07["_resolved_candidate_table_path"], "p07_declared_candidate_table_sha256": _sha256(Path(p07["_resolved_candidate_table_path"])), "p07_resolved_candidate_table_sha256": _sha256(Path(p07["_resolved_candidate_table_path"])),
             "p06_scan_manifest_path": str(expected_scan_manifest), "p06_scan_manifest_sha256": expected_scan_manifest_sha256,
-            "p07_declared_scan_manifest_path": p07["scan_manifest_path"], "p07_declared_scan_manifest_sha256": _sha256(Path(p07["scan_manifest_path"])),
+            "p07_declared_scan_manifest_path": p07["scan_manifest_path"], "p07_resolved_scan_manifest_path": p07["_resolved_scan_manifest_path"], "p07_declared_scan_manifest_sha256": _sha256(Path(p07["_resolved_scan_manifest_path"])), "p07_resolved_scan_manifest_sha256": _sha256(Path(p07["_resolved_scan_manifest_path"])),
             "p03_prediction_manifest_path": str(provenance_paths["p03_prediction_manifest"]), "p03_prediction_manifest_sha256": _sha256(provenance_paths["p03_prediction_manifest"]),
             "p03_prediction_qc_path": str(provenance_paths["p03_prediction_qc"]), "p03_prediction_qc_sha256": _sha256(provenance_paths["p03_prediction_qc"]), "p03_faa_path": p03_manifest["faa_path"],
-            "p07_sequence_id": p07["p07_sequence_id"], "source_proteome_path": p07["source_proteome_path"], "fasta_shard": p07["fasta_shard"],
+            "p07_sequence_id": p07["p07_sequence_id"], "source_proteome_path": p07["source_proteome_path"], "fasta_shard": p07["fasta_shard"], "p07_declared_fasta_shard": p07["fasta_shard"], "p07_resolved_fasta_shard_path": str(fasta_path), "p07_resolved_fasta_shard_sha256": fasta_sha256,
             "p07_annotation_status": ";".join(sorted({required_statuses[tool]["status"] for tool in REQUIRED_P07_TOOLS})),
             "p07_annotation_status_by_tool": ";".join(f"{tool}={required_statuses[tool]['status']}" for tool in REQUIRED_P07_TOOLS),
             "p07_annotation_status_table_path": str(p07_status_table), "p07_annotation_status_table_sha256": _sha256(Path(p07_status_table)),
             "p07_annotation_output_paths": ";".join(f"{tool}={required_statuses[tool]['output_path']}" for tool in REQUIRED_P07_TOOLS),
             "p07_annotation_input_fastas": ";".join(f"{tool}={required_statuses[tool]['input_fasta']}" for tool in REQUIRED_P07_TOOLS),
+            "p07_annotation_declared_input_fastas": ";".join(f"{tool}={required_statuses[tool]['input_fasta']}" for tool in REQUIRED_P07_TOOLS),
+            "p07_annotation_resolved_input_fastas": ";".join(f"{tool}={_resolve_p07_declared_path(required_statuses[tool]['input_fasta'], p07_source_root, field_name='status input_fasta')}" for tool in REQUIRED_P07_TOOLS),
+            "p07_annotation_declared_output_paths": ";".join(f"{tool}={required_statuses[tool]['output_path']}" for tool in REQUIRED_P07_TOOLS),
+            "p07_annotation_resolved_output_paths": ";".join(f"{tool}={_resolve_p07_declared_path(required_statuses[tool]['output_path'], p07_source_root, field_name='status output_path')}" for tool in REQUIRED_P07_TOOLS),
             "assembly_accession": assembly_accession, "taxonomy_lineage": lineage, "model_sha256": approved_models[family]["model_sha256"], "evidence_boundary": EVIDENCE_BOUNDARY,
         }
         candidate_rows.append(candidate)
@@ -889,6 +940,13 @@ def prepare_p08_inputs(
         {"input_role": role, "input_path": str(path), "input_sha256": _sha256(path), "input_usage": usage}
         for role, path, usage in (*primary_inputs, *taxonomy_inputs, *tree_inputs)
     ]
+    if p07_source_root is not None:
+        provenance_rows.append({
+            "input_role": "p07_source_root",
+            "input_path": str(p07_source_root),
+            "input_sha256": "not_a_file_root_declaration",
+            "input_usage": "relative_P07_path_resolution_root",
+        })
     provenance_rows.append({
         "input_role": "gtdb_release",
         "input_path": gtdb_release.strip(),
@@ -919,6 +977,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--p03-prediction-qc", type=Path, required=True)
     parser.add_argument("--p07-sequence-manifest", type=Path, required=True)
     parser.add_argument("--p07-status-table", type=Path, required=True)
+    parser.add_argument("--p07-source-root", type=Path, help="Required to resolve relative paths declared by the P07 manifests; recorded without rewriting the declarations.")
     parser.add_argument("--model-registry", type=Path, required=True)
     parser.add_argument("--seed-registry", type=Path, required=True)
     parser.add_argument("--control-panel", type=Path, required=True)
@@ -949,6 +1008,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             p03_prediction_qc=args.p03_prediction_qc,
             p07_sequence_table=args.p07_sequence_manifest,
             p07_status_table=args.p07_status_table,
+            p07_source_root=args.p07_source_root,
             p05_model_registry=args.model_registry,
             p05_seed_table=args.seed_registry,
             p05_control_table=args.control_panel,

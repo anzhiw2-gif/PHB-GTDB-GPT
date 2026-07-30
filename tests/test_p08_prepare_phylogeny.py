@@ -287,10 +287,12 @@ class PrepareP08InputsTests(unittest.TestCase):
     def _prepare(self, **kwargs: object) -> dict[str, Path]:
         outdir = kwargs.pop("outdir", self.outdir)
         gtdb_release = kwargs.pop("gtdb_release", P07_DEFAULT_GTDB_RELEASE)
+        p06_candidate_table = kwargs.pop("p06_candidate_table", self.p06)
+        p06_scan_manifest = kwargs.pop("p06_scan_manifest", self.p06_scan_manifest)
         return prepare_p08_inputs(
-            p06_candidate_table=self.p06,
+            p06_candidate_table=p06_candidate_table,
             gtdb_release=gtdb_release,
-            p06_scan_manifest=self.p06_scan_manifest,
+            p06_scan_manifest=p06_scan_manifest,
             p03_prediction_manifest=self.p03_prediction_manifest,
             p03_prediction_qc=self.p03_prediction_qc,
             p07_sequence_table=self.p07_sequences,
@@ -353,6 +355,7 @@ class PrepareP08InputsTests(unittest.TestCase):
                 "--p03-prediction-qc", str(self.p03_prediction_qc),
                 "--p07-sequence-manifest", str(self.p07_sequences),
                 "--p07-status-table", str(self.p07_status),
+                "--p07-source-root", str(self.root),
                 "--model-registry", str(self.registry),
                 "--seed-registry", str(self.seeds),
                 "--control-panel", str(self.controls),
@@ -398,6 +401,8 @@ class PrepareP08InputsTests(unittest.TestCase):
         self.assertEqual(provenance["ar53_tree"]["input_sha256"], self._sha256(ar53_tree))
         self.assertEqual(provenance["bac120_tree"]["input_usage"], "provenance_preflight_only_no_topology_read")
         self.assertEqual(provenance["ar53_tree"]["input_usage"], "provenance_preflight_only_no_topology_read")
+        self.assertEqual(provenance["p07_source_root"]["input_path"], str(self.root.resolve()))
+        self.assertEqual(provenance["p07_source_root"]["input_usage"], "relative_P07_path_resolution_root")
 
         default_command = list(completed.args)
         include_index = default_command.index("--include-tier")
@@ -798,6 +803,51 @@ class PrepareP08InputsTests(unittest.TestCase):
         write_tsv(self.p07_sequences, P07_SEQUENCE_FIELDS, rows)
         with self.assertRaisesRegex(ValueError, "P07 scan_manifest_path mismatch"):
             self._prepare()
+
+    def test_explicit_p07_source_root_resolves_relative_p07_paths_and_records_both_identities(self) -> None:
+        """P08 must retain P07 declarations while validating r8-root-relative artifacts."""
+        source_root = self.root / "p07-r8-source"
+        fasta_dir = source_root / "06_domain_annotation" / "input" / "fasta_shards"
+        p06_dir = source_root / "05_hmmer_scan"
+        fasta_dir.mkdir(parents=True)
+        p06_dir.mkdir(parents=True)
+        relative_archaeal = Path("06_domain_annotation/input/fasta_shards/p07_archaeal.faa")
+        relative_bacterial = Path("06_domain_annotation/input/fasta_shards/p07_bacterial.faa")
+        relative_candidate_table = Path("05_hmmer_scan/p06_hmmer_candidates.tsv")
+        relative_scan_manifest = Path("05_hmmer_scan/p06_hmmer_scan_manifest.tsv")
+        (source_root / relative_archaeal).write_text(self.p07_archaeal.read_text(encoding="utf-8"), encoding="utf-8")
+        (source_root / relative_bacterial).write_text(self.p07_bacterial.read_text(encoding="utf-8"), encoding="utf-8")
+        (source_root / relative_candidate_table).write_text(self.p06.read_text(encoding="utf-8"), encoding="utf-8")
+        (source_root / relative_scan_manifest).write_text(self.p06_scan_manifest.read_text(encoding="utf-8"), encoding="utf-8")
+        rows = read_tsv(self.p07_sequences)
+        for row in rows:
+            row["fasta_shard"] = str(relative_archaeal if row["target_id"] == "arc1" else relative_bacterial)
+            row["candidate_table_path"] = str(relative_candidate_table)
+            row["scan_manifest_path"] = str(relative_scan_manifest)
+        write_tsv(self.p07_sequences, P07_SEQUENCE_FIELDS, rows)
+        status_rows = read_tsv(self.p07_status)
+        for row in status_rows:
+            row["input_fasta"] = str(relative_archaeal if row["fasta_shard"] == self.p07_archaeal.stem else relative_bacterial)
+        write_tsv(self.p07_status, P07_STATUS_FIELDS, status_rows)
+
+        outputs = self._prepare(
+            p06_candidate_table=source_root / relative_candidate_table,
+            p06_scan_manifest=source_root / relative_scan_manifest,
+            p07_source_root=source_root,
+        )
+
+        candidate = next(row for row in read_tsv(outputs["candidate_manifest"]) if row["target_id"] == "arc1")
+        self.assertEqual(candidate["p07_source_root"], str(source_root.resolve()))
+        self.assertEqual(candidate["p07_declared_fasta_shard"], str(relative_archaeal))
+        self.assertEqual(candidate["p07_resolved_fasta_shard_path"], str((source_root / relative_archaeal).resolve()))
+        self.assertEqual(candidate["p07_declared_candidate_table_path"], str(relative_candidate_table))
+        self.assertEqual(candidate["p07_resolved_candidate_table_path"], str((source_root / relative_candidate_table).resolve()))
+        self.assertEqual(candidate["p07_declared_scan_manifest_path"], str(relative_scan_manifest))
+        self.assertEqual(candidate["p07_resolved_scan_manifest_path"], str((source_root / relative_scan_manifest).resolve()))
+        self.assertEqual(candidate["p07_resolved_candidate_table_sha256"], self._sha256(source_root / relative_candidate_table))
+        self.assertEqual(candidate["p07_resolved_scan_manifest_sha256"], self._sha256(source_root / relative_scan_manifest))
+        self.assertIn(str(relative_archaeal), candidate["p07_annotation_declared_input_fastas"])
+        self.assertIn(str((source_root / relative_archaeal).resolve()), candidate["p07_annotation_resolved_input_fastas"])
 
     def test_p07_association_preserves_skipped_existing_status_and_output_path(self) -> None:
         rows = read_tsv(self.p07_status)

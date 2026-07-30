@@ -29,6 +29,10 @@ GTDB 映射、域架构和定位信息均是序列/注释证据；它们不单�
   scan-manifest SHA-256、模型分数/coverage 阈值、P07 实际 terminal status、状态表路径和
   InterProScan/SignalP6 输出路径。P07 `family_categories` 必须包含当前 P06 family，重复状态键
   或来源不完整都会失败关闭。
+- P07 r8 manifest 中的 `fasta_shard`、`candidate_table_path`、`scan_manifest_path` 与 status
+  `input_fasta`/`output_path` 可以是 r8 worktree 相对路径；必须用显式
+  `--p07-source-root` 解析。P08 不改写这些原始声明，而是在 candidate manifest 中同时写入
+  原始字面量、解析后路径和相应 SHA-256；未提供 source root 的相对路径将失败关闭。
 
 ## 生成物与执行边界
 
@@ -56,24 +60,28 @@ outgroup；没有已记录外群时只能生成 midpoint display，不得把展�
 预检；下列命令是示例，不是本次任务执行记录。
 
 ```bash
-cd /home/data/haoyu/PHB-GTDB-GPT
+WT=/home/data/haoyu/PHB-GTDB-GPT-p08-preflight-20260730
+R8=/home/data/haoyu/PHB-GTDB-GPT-p06-r8-20260728
+OLD=/home/data/haoyu/PHB-GTDB-GPT
+cd "$WT"
 /home/data/haoyu/miniconda3/envs/phb_gtdb/bin/python \
   scripts/p08_prepare_phylogeny.py \
-  --candidate-table 05_hmmer_scan/p06_hmmer_candidates.tsv \
+  --candidate-table "$R8/05_hmmer_scan/p06_hmmer_candidates.tsv" \
   --gtdb-release "GTDB Release 11 R232" \
-  --p06-scan-manifest 05_hmmer_scan/p06_hmmer_scan_manifest.tsv \
-  --p03-prediction-manifest 03_gtdb_proteomes/manifests/p03_prediction_manifest.tsv \
-  --p03-prediction-qc 03_gtdb_proteomes/qc/p03_prediction_qc.tsv \
-  --p07-sequence-manifest 06_domain_annotation/manifests/p07_candidate_sequence_manifest.tsv \
-  --p07-status-table 06_domain_annotation/run_status/p07_domain_annotation_run_status.tsv \
-  --model-registry 04_family_profiles/manifests/p05_hmm_model_registry.tsv \
-  --seed-registry 04_family_profiles/manifests/p05_hmm_seed_registry.tsv \
-  --control-panel 04_family_profiles/manifests/p05_hmm_calibration_control_panel.tsv \
-  --bac120-taxonomy /path/to/bac120_taxonomy.tsv \
-  --ar53-taxonomy /path/to/ar53_taxonomy.tsv \
-  --bac120-tree /path/to/bac120.tree \
-  --ar53-tree /path/to/ar53.tree \
-  --outdir 07_phylogeny \
+  --p06-scan-manifest "$R8/05_hmmer_scan/p06_hmmer_scan_manifest.tsv" \
+  --p03-prediction-manifest "$OLD/03_gtdb_proteomes/manifests/p03_prediction_manifest.tsv" \
+  --p03-prediction-qc "$OLD/03_gtdb_proteomes/qc/p03_prediction_qc.tsv" \
+  --p07-sequence-manifest "$R8/06_domain_annotation/manifests/p07_candidate_sequence_manifest.tsv" \
+  --p07-status-table "$R8/06_domain_annotation/run_status/p07_domain_annotation_run_status.tsv" \
+  --p07-source-root "$R8" \
+  --model-registry "$WT/04_family_profiles/manifests/p05_hmm_model_registry.tsv" \
+  --seed-registry "$WT/04_family_profiles/manifests/p05_hmm_seed_registry.tsv" \
+  --control-panel "$WT/04_family_profiles/manifests/p05_hmm_calibration_control_panel.tsv" \
+  --bac120-taxonomy "$OLD/00_raw_gtdb_r232/bac120_taxonomy_r232.tsv" \
+  --ar53-taxonomy "$OLD/00_raw_gtdb_r232/ar53_taxonomy_r232.tsv" \
+  --bac120-tree "$OLD/00_raw_gtdb_r232/bac120_r232.tree" \
+  --ar53-tree "$OLD/00_raw_gtdb_r232/ar53_r232.tree" \
+  --outdir "$WT/07_phylogeny" \
   --include-tier High-confidence
 
 /home/data/haoyu/miniconda3/envs/phb_gtdb/bin/python \
