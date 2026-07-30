@@ -313,6 +313,72 @@ class PrepareP08InputsTests(unittest.TestCase):
         self.assertTrue(readme.is_file())
         self.assertTrue(readme.read_text(encoding="utf-8").strip())
 
+    def test_input_digest_cache_reuses_stable_hash_and_blocks_mutation(self) -> None:
+        cache = preparer._InputDigestCache()
+        path = self.root / "stable.txt"
+        path.write_text("first\n", encoding="utf-8")
+        self.assertEqual(cache.sha256(path), self._sha256(path))
+        self.assertEqual(cache.sha256(path), self._sha256(path))
+        path.write_text("second\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "input changed during P08 preparation"):
+            cache.sha256(path)
+
+    def test_prepare_accepts_sixty_workers_with_deterministic_candidate_rows(self) -> None:
+        one = read_tsv(self._prepare(outdir=self.root / "one", workers=1)["candidate_manifest"])
+        sixty = read_tsv(self._prepare(outdir=self.root / "sixty", workers=60)["candidate_manifest"])
+        self.assertEqual(one, sixty)
+
+    def test_prepare_rejects_worker_counts_outside_one_through_sixty(self) -> None:
+        for workers in (0, 61):
+            with self.assertRaisesRegex(ValueError, "workers must be between 1 and 60"):
+                self._prepare(workers=workers)
+
+    def test_worker_provenance_records_requested_and_effective_counts(self) -> None:
+        provenance = {
+            row["input_role"]: row
+            for row in read_tsv(self._prepare(workers=60)["input_provenance"])
+        }
+        self.assertEqual(provenance["p08_requested_workers"]["input_path"], "60")
+        self.assertEqual(provenance["p08_effective_fasta_preload_workers"]["input_path"], "2")
+
+    def test_candidate_fasta_drift_after_preload_blocks_before_manifest_write(self) -> None:
+        original_preload = preparer._preload_candidate_fastas
+
+        def preload_then_mutate(*args: object, **kwargs: object) -> object:
+            result = original_preload(*args, **kwargs)
+            self.p07_bacterial.write_text(
+                ">p07-bac1 arbitrary_source_header\nMPEPTIDQ\n>p07-review1\nMPEPTI\n",
+                encoding="utf-8",
+            )
+            return result
+
+        with patch.object(preparer, "_preload_candidate_fastas", side_effect=preload_then_mutate):
+            with self.assertRaisesRegex(ValueError, "input changed during P08 preparation"):
+                self._prepare(workers=60)
+        blocks = read_tsv(self.outdir / "review" / "p08_blocked_records.tsv")
+        self.assertTrue(any(row["reason"] == "input changed during P08 preparation" for row in blocks))
+        self.assertFalse((self.outdir / "manifests" / "p08_candidate_manifest.tsv").exists())
+
+    def test_core_authority_seed_registry_drift_blocks_before_manifest_write(self) -> None:
+        core_seed_registry, _ = self._write_authoritative_core_reference_view()
+        original_read_tsv = preparer._read_tsv
+
+        def read_then_mutate(path: Path, *args: object, **kwargs: object) -> list[dict[str, str]]:
+            rows = original_read_tsv(path, *args, **kwargs)
+            if Path(path) == core_seed_registry:
+                core_seed_registry.write_text(
+                    core_seed_registry.read_text(encoding="utf-8") + "\n",
+                    encoding="utf-8",
+                )
+            return rows
+
+        with patch.object(preparer, "_read_tsv", side_effect=read_then_mutate):
+            with self.assertRaisesRegex(ValueError, "input changed during P08 preparation"):
+                self._prepare(workers=60)
+        blocks = read_tsv(self.outdir / "review" / "p08_blocked_records.tsv")
+        self.assertTrue(any(row["reason"] == "input changed during P08 preparation" for row in blocks))
+        self.assertFalse((self.outdir / "manifests" / "p08_candidate_manifest.tsv").exists())
+
     def test_high_confidence_candidates_have_sorted_taxonomy_annotations_and_verified_references(self) -> None:
         outputs = self._prepare()
         candidates = read_tsv(outputs["candidate_manifest"])

@@ -82,6 +82,14 @@ summary、phylogeny command 和 hash-locked input provenance manifests，并写�
 的 machine-local 输入 FASTA。所有命令状态在该步固定为 `planned_not_run`；脚本不调用
 `subprocess.run`，不运行 MAFFT、FastTree 或 IQ-TREE。
 
+prepare CLI 的 `--workers` 是受限的输入预加载资源参数，范围为 1–60（默认 1）。它只
+并行读取互相独立的 P07 candidate FASTA shard，并由主线程按固定路径排序消费结果和
+写出全部产物，因而不引入并发写入或非确定性顺序。P06/P07/P03/GTDB 输入 SHA-256 在
+同一次准备运行中按规范化路径缓存；缓存条目绑定 `st_dev`、`st_ino`、`st_size` 与
+`st_mtime_ns`，任一后续身份漂移均失败关闭；P05 core 的动态 seed registry 与 close-control
+表也在读取前绑定并在写入前复核。`p08_input_provenance.tsv` 记录请求和实际 FASTA
+preload worker 数；该优化不改变任何生物学解释或工具执行边界。
+
 计划的 MAFFT 路线按照候选数量（不含种子/对照）确定：
 
 - `<200`：L-INS-i 计划，`--localpair --maxiterate 1000 --inputorder`；

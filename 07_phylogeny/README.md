@@ -54,6 +54,14 @@ preflight 输入：CLI 检查它们为非空本地文件，并在
 绝不读取树拓扑、请求或生成推断树。Bac120/Ar53 taxonomy 也分别核对
 `d__Bacteria`/`d__Archaea`，拒绝跨来源 accession 重叠。
 
+为避免重复读取同一份大规模 P06/P07 输入，prepare CLI 提供 `--workers 1` 到
+`--workers 60`（默认 1）。它只并行预加载彼此独立的 P07 candidate FASTA shard；
+所有 TSV/FASTA 输出仍由单一主线程以固定排序写入。每个输入 SHA-256 在一次运行内
+只计算一次，并同时绑定 device、inode、size 与 `mtime_ns`；P05 core 的动态 17-seed
+registry 与 5-close-control 表也在读取前绑定。这些身份值在后续访问和产物写入前复核时
+发生变化即失败关闭。`p08_input_provenance.tsv` 记录请求的和实际使用的预加载 worker
+数。该参数不会调用 MAFFT、FastTree、IQ-TREE 或 runner preflight。
+
 所有 `07_phylogeny/family_fastas/`、`alignments/`、`trees/`、`gtdb_mapping/`、
 `manifests/`、`review/`、`run_status/` 和 `run_logs/` 生成物均保持 machine-local
 并由 `.gitignore` 排除；Git 只保存脚本、测试和紧凑文档。
@@ -74,6 +82,8 @@ outgroup；没有已记录外群时只能生成 midpoint display，不得把展�
 WT=/home/data/haoyu/PHB-GTDB-GPT-p08-preflight-20260730
 R8=/home/data/haoyu/PHB-GTDB-GPT-p06-r8-20260728
 OLD=/home/data/haoyu/PHB-GTDB-GPT
+RUN="$WT/07_phylogeny/runs/prepare-YYYYMMDD-workers60"
+test ! -e "$RUN"
 cd "$WT"
 /home/data/haoyu/miniconda3/envs/phb_gtdb/bin/python \
   scripts/p08_prepare_phylogeny.py \
@@ -93,13 +103,14 @@ cd "$WT"
   --ar53-taxonomy "$OLD/00_raw_gtdb_r232/ar53_taxonomy_r232.tsv" \
   --bac120-tree "$OLD/00_raw_gtdb_r232/bac120_r232.tree" \
   --ar53-tree "$OLD/00_raw_gtdb_r232/ar53_r232.tree" \
-  --outdir "$WT/07_phylogeny" \
-  --include-tier High-confidence
+  --outdir "$RUN" \
+  --include-tier High-confidence \
+  --workers 60
 
 /home/data/haoyu/miniconda3/envs/phb_gtdb/bin/python \
   scripts/p08_run_phylogeny.py \
-  --manifest 07_phylogeny/manifests/p08_phylogeny_command_manifest.tsv \
-  --status-dir 07_phylogeny/run_status \
+  --manifest "$RUN/manifests/p08_phylogeny_command_manifest.tsv" \
+  --status-dir "$RUN/run_status" \
   --workers 1 \
   --preflight-only
 ```

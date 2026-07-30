@@ -15,7 +15,10 @@ import re
 import subprocess
 import sys
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
 from typing import Iterable, Mapping, Sequence
 
 if __package__ in {None, ""}:
@@ -267,6 +270,92 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+@dataclass(frozen=True)
+class _InputFingerprint:
+    """Filesystem identity used to reject input drift during one P08 run."""
+
+    device: int
+    inode: int
+    size: int
+    mtime_ns: int
+
+
+def _input_fingerprint(path: Path) -> _InputFingerprint:
+    """Return the stable file identity contract for a cached P08 input."""
+    stat = path.stat()
+    return _InputFingerprint(
+        device=stat.st_dev,
+        inode=stat.st_ino,
+        size=stat.st_size,
+        mtime_ns=stat.st_mtime_ns,
+    )
+
+
+class _InputDigestCache:
+    """Reuse input digests only while their checked filesystem identity is stable."""
+
+    def __init__(self) -> None:
+        self._entries: dict[Path, tuple[_InputFingerprint, str]] = {}
+        self._lock = Lock()
+
+    def sha256(self, path: Path) -> str:
+        """Return one SHA-256 per stable canonical source path."""
+        canonical = Path(path).resolve(strict=True)
+        fingerprint = _input_fingerprint(canonical)
+        with self._lock:
+            existing = self._entries.get(canonical)
+            if existing is not None:
+                if existing[0] != fingerprint:
+                    raise ValueError(f"input changed during P08 preparation: {canonical}")
+                return existing[1]
+        digest = _sha256(canonical)
+        if _input_fingerprint(canonical) != fingerprint:
+            raise ValueError(f"input changed during P08 preparation: {canonical}")
+        with self._lock:
+            existing = self._entries.get(canonical)
+            if existing is not None:
+                if existing[0] != fingerprint:
+                    raise ValueError(f"input changed during P08 preparation: {canonical}")
+                return existing[1]
+            self._entries[canonical] = (fingerprint, digest)
+        return digest
+
+    def assert_all_stable(self) -> None:
+        """Fail if a source bound earlier in this invocation has since drifted."""
+        with self._lock:
+            entries = tuple(self._entries.items())
+        for path, (expected, _) in entries:
+            if _input_fingerprint(path) != expected:
+                raise ValueError(f"input changed during P08 preparation: {path}")
+
+
+def _preload_candidate_fastas(
+    paths: Iterable[Path],
+    *,
+    workers: int,
+    digest_cache: _InputDigestCache,
+) -> tuple[dict[str, tuple[str, dict[str, str]]], int]:
+    """Read independent candidate shards concurrently without output-side effects."""
+    ordered_paths = sorted({Path(path).resolve(strict=False) for path in paths}, key=str)
+    if not ordered_paths:
+        return {}, 0
+
+    def load(path: Path) -> tuple[str, dict[str, str]]:
+        try:
+            return digest_cache.sha256(path), _read_fasta(path)
+        except OSError as error:
+            raise ValueError(f"candidate FASTA unreadable: {path}; {error}") from error
+        except ValueError as error:
+            if str(error).startswith("input changed during P08 preparation:"):
+                raise
+            raise ValueError(f"candidate FASTA malformed: {path}; {error}") from error
+
+    effective_workers = min(workers, len(ordered_paths))
+    with ThreadPoolExecutor(max_workers=effective_workers) as executor:
+        values = list(executor.map(load, ordered_paths))
+    return {str(path): value for path, value in zip(ordered_paths, values)}, effective_workers
 
 
 def _sha256_bytes(data: bytes) -> str:
@@ -548,6 +637,7 @@ def prepare_p08_inputs(
     taxonomy_paths: Sequence[Path],
     outdir: Path,
     include_tiers: Sequence[str] = DEFAULT_INCLUDE_TIERS,
+    workers: int = 1,
     mafft_exe: str = "mafft",
     iqtree_exe: str = "iqtree2",
     fasttree_exe: str = "FastTree",
@@ -564,6 +654,9 @@ def prepare_p08_inputs(
     outdir = Path(outdir)
     blocks: list[dict[str, str]] = []
     include_tiers = tuple(include_tiers)
+    if isinstance(workers, bool) or not isinstance(workers, int) or not 1 <= workers <= 60:
+        _fail(outdir, blocks, "workers must be between 1 and 60")
+    digest_cache = _InputDigestCache()
     if "Rejected" in include_tiers:
         _fail(outdir, blocks, "Rejected tier is not permitted by the P08 Python API")
     provenance_paths = {
@@ -588,6 +681,22 @@ def prepare_p08_inputs(
         p03_source_root = Path(p03_source_root).resolve(strict=False)
         if not p03_source_root.is_dir():
             _fail(outdir, blocks, "p03_source_root must be an existing directory", source_path=str(p03_source_root))
+    initial_input_paths = (
+        Path(p05_model_registry),
+        Path(p05_seed_table),
+        Path(p05_control_table),
+        Path(p06_candidate_table),
+        Path(p07_sequence_table),
+        Path(p07_status_table),
+        *provenance_paths.values(),
+        *(Path(path) for path in taxonomy_paths),
+        *(Path(path) for path in (additional_provenance_inputs or {}).values()),
+    )
+    try:
+        for path in initial_input_paths:
+            digest_cache.sha256(path)
+    except (OSError, ValueError) as error:
+        _fail(outdir, blocks, f"P08 input binding failed: {error}")
     try:
         registry_rows = _read_tsv(Path(p05_model_registry), REGISTRY_FIELDS, "P05 registry")
         seed_rows = _read_tsv(Path(p05_seed_table), SEED_FIELDS, "P05 seed table")
@@ -645,8 +754,8 @@ def prepare_p08_inputs(
     expected_gtdb_release = CANONICAL_GTDB_RELEASE
     expected_candidate_table = Path(p06_candidate_table)
     expected_scan_manifest = provenance_paths["p06_scan_manifest"]
-    expected_candidate_table_sha256 = _sha256(expected_candidate_table)
-    expected_scan_manifest_sha256 = _sha256(expected_scan_manifest)
+    expected_candidate_table_sha256 = digest_cache.sha256(expected_candidate_table)
+    expected_scan_manifest_sha256 = digest_cache.sha256(expected_scan_manifest)
 
     p07_by_key: dict[tuple[str, str], dict[str, str]] = {}
     p07_ids: set[str] = set()
@@ -705,6 +814,30 @@ def prepare_p08_inputs(
             "_resolved_fasta_shard_path": str(resolved_fasta_shard),
         }
         p07_ids.add(row["p07_sequence_id"])
+    selected_fasta_paths = [
+        Path(p07_by_key[(row["proteome_shard"], row["target_id"])]["_resolved_fasta_shard_path"])
+        for row in selected
+        if (row["proteome_shard"], row["target_id"]) in p07_by_key
+    ]
+    try:
+        candidate_fasta_cache, effective_fasta_preload_workers = _preload_candidate_fastas(
+            selected_fasta_paths,
+            workers=workers,
+            digest_cache=digest_cache,
+        )
+    except ValueError as error:
+        message = str(error)
+        if message.startswith("input changed during P08 preparation:"):
+            _fail(outdir, blocks, "input changed during P08 preparation", source_path=str(p07_sequence_table), notes=message)
+        for reason in ("candidate FASTA unreadable", "candidate FASTA malformed"):
+            if message.startswith(f"{reason}:"):
+                _fail(outdir, blocks, reason, source_path=str(p07_sequence_table), notes=message)
+        _fail(outdir, blocks, message, source_path=str(p07_sequence_table))
+    except OSError as error:
+        _fail(outdir, blocks, "candidate FASTA unreadable", source_path=str(p07_sequence_table), notes=str(error))
+    p03_prediction_manifest_sha256 = digest_cache.sha256(provenance_paths["p03_prediction_manifest"])
+    p03_prediction_qc_sha256 = digest_cache.sha256(provenance_paths["p03_prediction_qc"])
+    p07_status_table_sha256 = digest_cache.sha256(Path(p07_status_table))
     statuses: dict[tuple[str, str], dict[str, str]] = {}
     for row in status_rows:
         status_key = (row["tool"], row["fasta_shard"])
@@ -734,7 +867,7 @@ def prepare_p08_inputs(
             if source_model is None or row["model_sha256"] != source_model["model_sha256"]:
                 _fail(outdir, blocks, "P05 reference model SHA-256 mismatch", family_category=row["family_category"], source_path=str(path), notes=f"{identifier_field}={row[identifier_field]}; declared_model_sha256={row['model_sha256']}; registry_model_sha256={(source_model or {}).get('model_sha256', 'missing')}")
             try:
-                raw_file_sha256 = _sha256(path)
+                raw_file_sha256 = digest_cache.sha256(path)
                 canonical_lf_sha256 = _sha256_bytes(path.read_bytes().replace(b"\r\n", b"\n"))
             except OSError as error:
                 _fail(outdir, blocks, f"sequence file unreadable: {path}", family_category=row["family_category"], source_path=str(path), notes=str(error))
@@ -776,8 +909,9 @@ def prepare_p08_inputs(
         core_model = approved_models[CORE_FAMILY]
         core_seed_path = Path(p05_seed_table).parent / CORE_SEED_REGISTRY_FILENAME
         try:
+            digest_cache.sha256(core_seed_path)
             core_seed_rows = _read_tsv(core_seed_path, CORE_SEED_FIELDS, "P05 extracellular core seed registry")
-        except ValueError as error:
+        except (OSError, ValueError) as error:
             _fail(outdir, blocks, "missing authoritative core seed registry", family_category=CORE_FAMILY, source_path=str(core_seed_path), notes=str(error))
         expected_count = core_model.get("seed_sequence_count", "")
         if (
@@ -822,8 +956,9 @@ def prepare_p08_inputs(
             })
         close_controls_path = Path(p05_seed_table).parent / CORE_CLOSE_CONTROLS_FILENAME
         try:
+            digest_cache.sha256(close_controls_path)
             close_rows = _read_tsv(close_controls_path, CORE_CLOSE_CONTROL_FIELDS, "P05 extracellular core close controls")
-        except ValueError as error:
+        except (OSError, ValueError) as error:
             _fail(outdir, blocks, "missing authoritative core close controls", family_category=CORE_FAMILY, source_path=str(close_controls_path), notes=str(error))
         if len(close_rows) != CORE_CLOSE_CONTROL_COUNT or len({row["source_accession"] for row in close_rows}) != CORE_CLOSE_CONTROL_COUNT:
             _fail(outdir, blocks, "core hard-panel count mismatch", family_category=CORE_FAMILY, source_path=str(close_controls_path), notes=f"expected_close_controls={CORE_CLOSE_CONTROL_COUNT}; observed={len(close_rows)}")
@@ -842,7 +977,7 @@ def prepare_p08_inputs(
             expected_sha256 = match.group(1)
             if _residue_sha256(sequence) != expected_sha256:
                 _fail(outdir, blocks, "SHA-256 mismatch", family_category=CORE_FAMILY, source_path=str(path), notes=f"source_accession={row['source_accession']}; checksum_kind=residue_sha256")
-            raw_file_sha256 = _sha256(path)
+            raw_file_sha256 = digest_cache.sha256(path)
             canonical_lf_sha256 = _sha256_bytes(path.read_bytes().replace(b"\r\n", b"\n"))
             references_by_family[CORE_FAMILY].append({
                 "family_category": CORE_FAMILY, "record_kind": "control", "record_id": f"{CORE_FAMILY}|close_non_target_hydrolase|{row['family_category']}|{row['source_accession']}", "source_accession": row["source_accession"], "control_role": "close_non_target_hydrolase", "sequence_path": str(path), "sequence_sha256": expected_sha256, "verified_sha256": expected_sha256, "observed_file_sha256": raw_file_sha256, "canonical_lf_sha256": canonical_lf_sha256, "checksum_verification_mode": "residue_sha256", "checksum_declared_representation": "residue", "source_checksum_kind": "residue_sha256", "model_sha256": core_model["model_sha256"], "source_model_sha256": "", "model_provenance": "derived_core_close_control", "model_provenance_source_path": str(close_controls_path), "evidence": row.get("evidence_level", ""), "notes": row["notes"], "sequence": sequence, "source_accession_or_assembly": row["source_accession"],
@@ -854,7 +989,6 @@ def prepare_p08_inputs(
     candidate_rows: list[dict[str, str]] = []
     candidate_fasta_records: list[dict[str, str]] = []
     taxonomy_rows: list[dict[str, str]] = []
-    candidate_fasta_cache: dict[str, tuple[str, dict[str, str]]] = {}
     for p06 in selected:
         family = p06["family_category"]
         family_references = references_by_family[family]
@@ -878,13 +1012,7 @@ def prepare_p08_inputs(
         fasta_path = Path(p07["_resolved_fasta_shard_path"])
         cached = candidate_fasta_cache.get(str(fasta_path))
         if cached is None:
-            try:
-                cached = (_sha256(fasta_path), _read_fasta(fasta_path))
-            except OSError as error:
-                _fail(outdir, blocks, "candidate FASTA unreadable", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=str(fasta_path), notes=str(error))
-            except ValueError as error:
-                _fail(outdir, blocks, "candidate FASTA malformed", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=str(fasta_path), notes=str(error))
-            candidate_fasta_cache[str(fasta_path)] = cached
+            _fail(outdir, blocks, "candidate FASTA preload missing", family_category=family, proteome_shard=key[0], target_id=key[1], source_path=str(fasta_path))
         fasta_sha256, candidate_source_records = cached
         sequence = candidate_source_records.get(p07["p07_sequence_id"])
         if sequence is None:
@@ -938,18 +1066,18 @@ def prepare_p08_inputs(
             "gtdb_release": expected_gtdb_release, "p07_declared_gtdb_release": p07["gtdb_release"],
             "p06_candidate_table_path": str(expected_candidate_table), "p06_candidate_table_sha256": expected_candidate_table_sha256,
             "p07_source_root": str(p07_source_root) if p07_source_root is not None else "",
-            "p07_declared_candidate_table_path": p07["candidate_table_path"], "p07_resolved_candidate_table_path": p07["_resolved_candidate_table_path"], "p07_declared_candidate_table_sha256": _sha256(Path(p07["_resolved_candidate_table_path"])), "p07_resolved_candidate_table_sha256": _sha256(Path(p07["_resolved_candidate_table_path"])),
+            "p07_declared_candidate_table_path": p07["candidate_table_path"], "p07_resolved_candidate_table_path": p07["_resolved_candidate_table_path"], "p07_declared_candidate_table_sha256": expected_candidate_table_sha256, "p07_resolved_candidate_table_sha256": expected_candidate_table_sha256,
             "p06_scan_manifest_path": str(expected_scan_manifest), "p06_scan_manifest_sha256": expected_scan_manifest_sha256,
-            "p07_declared_scan_manifest_path": p07["scan_manifest_path"], "p07_resolved_scan_manifest_path": p07["_resolved_scan_manifest_path"], "p07_declared_scan_manifest_sha256": _sha256(Path(p07["_resolved_scan_manifest_path"])), "p07_resolved_scan_manifest_sha256": _sha256(Path(p07["_resolved_scan_manifest_path"])),
-            "p03_prediction_manifest_path": str(provenance_paths["p03_prediction_manifest"]), "p03_prediction_manifest_sha256": _sha256(provenance_paths["p03_prediction_manifest"]),
-            "p03_prediction_qc_path": str(provenance_paths["p03_prediction_qc"]), "p03_prediction_qc_sha256": _sha256(provenance_paths["p03_prediction_qc"]),
+            "p07_declared_scan_manifest_path": p07["scan_manifest_path"], "p07_resolved_scan_manifest_path": p07["_resolved_scan_manifest_path"], "p07_declared_scan_manifest_sha256": expected_scan_manifest_sha256, "p07_resolved_scan_manifest_sha256": expected_scan_manifest_sha256,
+            "p03_prediction_manifest_path": str(provenance_paths["p03_prediction_manifest"]), "p03_prediction_manifest_sha256": p03_prediction_manifest_sha256,
+            "p03_prediction_qc_path": str(provenance_paths["p03_prediction_qc"]), "p03_prediction_qc_sha256": p03_prediction_qc_sha256,
             "p03_source_root": str(p03_source_root) if p03_source_root is not None else "", "p03_faa_path": p03_manifest["faa_path"],
             "p03_manifest_declared_faa_path": p03_manifest["faa_path"], "p03_manifest_resolved_faa_path": str(resolved_p03_manifest_faa),
             "p03_qc_declared_faa_path": p03_qc["faa_path"], "p03_qc_resolved_faa_path": str(resolved_p03_qc_faa),
             "p07_sequence_id": p07["p07_sequence_id"], "source_proteome_path": p07["source_proteome_path"], "fasta_shard": p07["fasta_shard"], "p07_declared_fasta_shard": p07["fasta_shard"], "p07_resolved_fasta_shard_path": str(fasta_path), "p07_resolved_fasta_shard_sha256": fasta_sha256,
             "p07_annotation_status": ";".join(sorted({required_statuses[tool]["status"] for tool in REQUIRED_P07_TOOLS})),
             "p07_annotation_status_by_tool": ";".join(f"{tool}={required_statuses[tool]['status']}" for tool in REQUIRED_P07_TOOLS),
-            "p07_annotation_status_table_path": str(p07_status_table), "p07_annotation_status_table_sha256": _sha256(Path(p07_status_table)),
+            "p07_annotation_status_table_path": str(p07_status_table), "p07_annotation_status_table_sha256": p07_status_table_sha256,
             "p07_annotation_output_paths": ";".join(f"{tool}={required_statuses[tool]['output_path']}" for tool in REQUIRED_P07_TOOLS),
             "p07_annotation_input_fastas": ";".join(f"{tool}={required_statuses[tool]['input_fasta']}" for tool in REQUIRED_P07_TOOLS),
             "p07_annotation_declared_input_fastas": ";".join(f"{tool}={required_statuses[tool]['input_fasta']}" for tool in REQUIRED_P07_TOOLS),
@@ -983,6 +1111,10 @@ def prepare_p08_inputs(
     candidate_rows.sort(key=sort_key)
     taxonomy_rows.sort(key=sort_key)
     reference_rows = sorted((row for family in {row["family_category"] for row in selected} for row in references_by_family[family]), key=lambda row: (row["family_category"], row["record_kind"], row["record_id"]))
+    try:
+        digest_cache.assert_all_stable()
+    except (OSError, ValueError) as error:
+        _fail(outdir, blocks, "input changed during P08 preparation", notes=str(error))
     outputs = {
         "candidate_manifest": outdir / "manifests" / "p08_candidate_manifest.tsv",
         "taxonomy_join": outdir / "gtdb_mapping" / "p08_taxonomy_join.tsv",
@@ -1095,9 +1227,23 @@ def prepare_p08_inputs(
         for role, path in (additional_provenance_inputs or {}).items()
     )
     provenance_rows = [
-        {"input_role": role, "input_path": str(path), "input_sha256": _sha256(path), "input_usage": usage}
+        {"input_role": role, "input_path": str(path), "input_sha256": digest_cache.sha256(path), "input_usage": usage}
         for role, path, usage in (*primary_inputs, *taxonomy_inputs, *tree_inputs)
     ]
+    provenance_rows.extend((
+        {
+            "input_role": "p08_requested_workers",
+            "input_path": str(workers),
+            "input_sha256": "not_a_file_runtime_parameter",
+            "input_usage": "bounded_P08_candidate_FASTA_preload_worker_request",
+        },
+        {
+            "input_role": "p08_effective_fasta_preload_workers",
+            "input_path": str(effective_fasta_preload_workers),
+            "input_sha256": "not_a_file_runtime_parameter",
+            "input_usage": "distinct_P07_candidate_FASTA_shard_preload_workers",
+        },
+    ))
     if p07_source_root is not None:
         provenance_rows.append({
             "input_role": "p07_source_root",
@@ -1153,6 +1299,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ar53-tree", type=Path, required=True)
     parser.add_argument("--outdir", type=Path, required=True)
     parser.add_argument("--include-tier", choices=("High-confidence", "Review"), action="append")
+    parser.add_argument("--workers", type=int, default=1, help="Bounded P07 candidate FASTA preload workers (1-60).")
     parser.add_argument("--mafft-exe", default="mafft")
     parser.add_argument("--iqtree-exe", default="iqtree2")
     parser.add_argument("--fasttree-exe", default="FastTree")
@@ -1184,6 +1331,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             additional_provenance_inputs={"bac120_tree": bac120_tree, "ar53_tree": ar53_tree},
             outdir=args.outdir,
             include_tiers=tuple(args.include_tier or DEFAULT_INCLUDE_TIERS),
+            workers=args.workers,
             mafft_exe=args.mafft_exe,
             iqtree_exe=args.iqtree_exe,
             fasttree_exe=args.fasttree_exe,
